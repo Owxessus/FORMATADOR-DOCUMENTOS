@@ -11,14 +11,32 @@ API_URL = "https://openrouter.ai/api/v1/chat/completions"
 KEY_URL = "https://openrouter.ai/api/v1/key"
 DEFAULT_MODEL = "google/gemini-3.7-flash"
 
-# Opções oferecidas no menu de configurações (rótulo → id na OpenRouter).
+# Opções do menu de configurações, da mais barata à mais cara.
+# "reasoning" é enviado à OpenRouter para modelos que aceitam esforço.
 MODEL_CHOICES = {
-    "Gemini 3.7 Flash — rápido e econômico (padrão)": "google/gemini-3.7-flash",
-    "Gemini 3.6 Flash — alternativa": "google/gemini-3.6-flash",
-    "Claude Sonnet 4.5 — mais caro, texto mais refinado":
-        "anthropic/claude-sonnet-4.5",
-    "GPT-5 mini — alternativa": "openai/gpt-5-mini",
+    "GPT-5.6 Luna (esforço máximo) — mais econômico": {
+        "id": "openai/gpt-5.6-luna",
+        "reasoning": {"effort": "high"},
+        "custo": "~US$ 0,005 por relatório"},
+    "Gemini 3.7 Flash — equilibrado (padrão)": {
+        "id": "google/gemini-3.7-flash",
+        "custo": "~US$ 0,01 por relatório"},
+    "Claude Sonnet 5 — mais caro, texto mais refinado": {
+        "id": "anthropic/claude-sonnet-5",
+        "custo": "~US$ 0,05 por relatório"},
 }
+
+
+def model_id(rotulo: str) -> str:
+    return MODEL_CHOICES.get(rotulo, {}).get("id", DEFAULT_MODEL)
+
+
+def model_reasoning(model: str) -> dict | None:
+    for cfg in MODEL_CHOICES.values():
+        if cfg["id"] == model:
+            return cfg.get("reasoning")
+    return None
+
 
 SYSTEM_PROMPT = """Você é um revisor profissional de documentos institucionais \
 brasileiros (relatórios de assistência social, ocorrências, respostas a órgãos \
@@ -74,6 +92,9 @@ class OpenRouterClient:
             "temperature": 0.2,
             "usage": {"include": True},
         }
+        reasoning = model_reasoning(self.model)
+        if reasoning:
+            body["reasoning"] = reasoning
         r = requests.post(
             API_URL, json=body, timeout=self.timeout,
             headers={

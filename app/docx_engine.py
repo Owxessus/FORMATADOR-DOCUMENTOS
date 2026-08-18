@@ -45,6 +45,7 @@ class DocModel:
     sectpr: str                    # <w:sectPr…> original
     paragraphs: list[Paragraph] = field(default_factory=list)
     signature_xml: str = ""        # zona de assinatura preservada verbatim
+    signature_labels: list[str] | None = None  # rótulos vindos do perfil
     warnings: list[str] = field(default_factory=list)
 
     @property
@@ -109,29 +110,37 @@ def _classify(text: str, p_xml: str, index: int, total: int) -> str:
 
 
 def _find_signature_start(paras: list[str]) -> int:
-    """Varre DO FIM para o início: bloco contíguo de parágrafos com imagem
-    real (a:blip), linhas de underscores, rótulos curtos ou vazios."""
+    """Índice onde começa a zona de assinatura (preservada verbatim).
+
+    Varre DO FIM para o início aceitando parágrafos vazios, rótulos curtos
+    (Gerente, Equipe Técnica…) e âncoras — imagem de assinatura ou linha de
+    underscores. Para no primeiro parágrafo longo de texto corrido. Os
+    rótulos vêm DEPOIS da linha de assinatura, por isso não se pode parar
+    ao encontrá-los.
+    """
     def is_anchor(p: str) -> bool:
-        if "<a:blip" in p:
+        if "<a:blip" in p:          # imagem (assinatura digitalizada/logo)
             return True
         t = _para_text(p).strip()
-        return bool(t) and set(t) <= set("_  ") and len(t) >= 5
+        return bool(t) and set(t) <= set("_  ") and len(t) >= 5
 
     sig_start = len(paras)
-    seen_anchor = False
+    achou_ancora = False
+    passos = 0
     for i in range(len(paras) - 1, -1, -1):
         t = _para_text(paras[i]).strip()
         if is_anchor(paras[i]):
-            seen_anchor = True
+            achou_ancora = True
             sig_start = i
-        elif not t:
-            if seen_anchor:
-                sig_start = i
-        elif seen_anchor and len(t) <= 70:
-            sig_start = i  # rótulo curto (Gerente, Equipe Técnica…)
-        else:
-            break
-    return sig_start
+            passos = 0
+            continue
+        if not t or len(t) <= 70:
+            passos += 1
+            if passos > 12:
+                break
+            continue
+        break
+    return sig_start if achou_ancora else len(paras)
 
 
 def extract(docx_path: str) -> DocModel:
@@ -399,6 +408,22 @@ def _write_docx(files: dict, out_path: str) -> None:
                 z.writestr(n, data)
 
 
+def override_signature(sig_xml: str, labels: list[str]) -> str:
+    """Troca os rótulos da assinatura (Gerente / Equipe Técnica…),
+    preservando imagens e a linha de assinatura do documento original."""
+    if not labels:
+        return sig_xml
+    mantidos = []
+    for p in _split_paragraphs(sig_xml):
+        t = _para_text(p).strip()
+        if "<a:blip" in p or (t and set(t) <= set("_  ")):
+            mantidos.append(p)
+    centro = ('<w:pPr><w:spacing w:after="0" w:line="240" w:lineRule="auto"/>'
+              f'<w:jc w:val="center"/>{_rpr(bold=True)}</w:pPr>')
+    novos = [f"<w:p>{centro}{_run(l, bold=True)}</w:p>" for l in labels]
+    return "".join(mantidos + novos)
+
+
 def _build(model: DocModel, out_path: str, redline: bool) -> None:
     files = _load_files(model.src_path)
     has_bullets = any(p.kind == "b" for p in model.paragraphs)
@@ -412,7 +437,10 @@ def _build(model: DocModel, out_path: str, redline: bool) -> None:
             body.append(_redline_par(p.kind, p.text, corr, numid))
         else:
             body.append(_clean_par(p.kind, corr, numid))
-    body.append(model.signature_xml)
+    sig = model.signature_xml
+    if model.signature_labels:
+        sig = override_signature(sig, model.signature_labels)
+    body.append(sig)
     if redline:
         body.append(_fmt_note())
     xml = model.prefix + "".join(body) + model.sectpr + "</w:body></w:document>"
@@ -474,7 +502,9 @@ def numbers_preserved(orig: str, corr: str) -> bool:
 
 def process(docx_path: str, corrector, out_dir: str | None = None,
             extra_instructions: str = "",
-            progress=lambda msg: None) -> dict:
+            progress=lambda msg: None,
+            signature_labels: list[str] | None = None,
+            checkers=()) -> dict:
     """
     Pipeline completo. `corrector(texts, kinds, extra_instructions)` deve
     devolver a lista de textos corrigidos (mesmo tamanho; "" = excluir).
@@ -483,6 +513,15 @@ def process(docx_path: str, corrector, out_dir: str | None = None,
     model = extract(docx_path)
     if not model.paragraphs:
         raise ValueError("Nenhum parágrafo de texto encontrado no documento.")
+
+    model.signature_labels = signature_labels
+
+    progress("Conferindo datas e blocos institucionais…")
+    for fn in checkers:
+        try:
+            model.warnings.extend(fn(model.editable_texts))
+        except Exception as e:  # noqa: BLE001 — verificação nunca bloqueia
+            model.warnings.append(f"Verificação não pôde ser feita: {e}")
 
     progress("Corrigindo texto com IA…")
     kinds = [p.kind for p in model.paragraphs]
@@ -514,6 +553,7 @@ def process(docx_path: str, corrector, out_dir: str | None = None,
 
     return {"final": final_path, "redline": redline_path,
             "verified": ok, "warnings": model.warnings,
+            "texto": " ".join(p.corrected or p.text for p in model.paragraphs),
             "paragraphs": len(model.paragraphs),
             "changed": sum(1 for p in model.paragraphs
                            if p.corrected not in (None, p.text))}

@@ -15,6 +15,8 @@ import customtkinter as ctk
 from tkinterdnd2 import DND_FILES, TkinterDnD
 
 import ai_client
+import archive
+import memory
 import settings
 import worker
 
@@ -213,6 +215,12 @@ class App(TkinterDnD.Tk):
         left = ctk.CTkFrame(body, fg_color="transparent")
         left.pack(side="left", fill="both", expand=True)
 
+        mem = memory.load()
+        self.perfil_var = ctk.StringVar(value="Detectar automaticamente")
+        ctk.CTkOptionMenu(left, values=list(mem["perfis"]),
+                          variable=self.perfil_var, height=28,
+                          dynamic_resizing=False).pack(fill="x", pady=(0, 6))
+
         # área de drop
         self.drop = ctk.CTkFrame(left, corner_radius=16,
                                  border_width=2, border_color=ACCENT)
@@ -254,7 +262,9 @@ class App(TkinterDnD.Tk):
             right.pack(side="right", fill="both", padx=(12, 0))
             tabs = ctk.CTkTabview(right, width=350)
             tabs.pack(fill="both", expand=True, padx=6, pady=6)
+            self._build_search_tab(tabs.add("Busca"))
             self._build_history_tab(tabs.add("Histórico"))
+            self._build_memory_tab(tabs.add("Memória"))
             self._build_settings_tab(tabs.add("Configurações"))
 
     def _build_history_tab(self, tab):
@@ -275,6 +285,174 @@ class App(TkinterDnD.Tk):
                                f'US$ {h["cost"]:.3f}')).pack(
                 fill="x", padx=10, pady=(0, 6))
 
+    # --------------------------------------------------------- busca
+
+    def _build_search_tab(self, tab):
+        topo = ctk.CTkFrame(tab, fg_color="transparent")
+        topo.pack(fill="x", pady=(4, 6))
+        entry = ctk.CTkEntry(topo, placeholder_text="Buscar nos relatórios…")
+        entry.pack(side="left", fill="x", expand=True)
+        res_frame = ctk.CTkScrollableFrame(tab, fg_color="transparent")
+        res_frame.pack(fill="both", expand=True)
+        info = ctk.CTkLabel(tab, text_color="gray", font=ctk.CTkFont(size=11),
+                            text=f"{archive.total()} documento(s) no índice")
+        info.pack(fill="x")
+
+        def mostrar(itens):
+            for w in res_frame.winfo_children():
+                w.destroy()
+            if not itens:
+                ctk.CTkLabel(res_frame, text="Nada encontrado.",
+                             text_color="gray").pack(pady=16)
+                return
+            for it in itens:
+                card = ctk.CTkFrame(res_frame, corner_radius=8)
+                card.pack(fill="x", pady=3, padx=2)
+                ctk.CTkLabel(card, text=it["nome"], anchor="w",
+                             font=ctk.CTkFont(size=12, weight="bold")).pack(
+                    fill="x", padx=8, pady=(5, 0))
+                ctk.CTkLabel(card, text=it["trecho"][:150], anchor="w",
+                             wraplength=300, justify="left",
+                             text_color="gray").pack(fill="x", padx=8)
+                ctk.CTkButton(card, text="Abrir pasta", height=24, width=90,
+                              fg_color="gray50",
+                              command=lambda c=it["caminho"]:
+                              open_folder(c)).pack(anchor="e", padx=8, pady=4)
+
+        def buscar(_evt=None):
+            mostrar(archive.buscar(entry.get()))
+
+        entry.bind("<Return>", buscar)
+        ctk.CTkButton(topo, text="🔍", width=40,
+                      command=buscar).pack(side="left", padx=(6, 0))
+
+        def indexar_pasta():
+            from tkinter import filedialog
+            pasta = filedialog.askdirectory(
+                title="Escolha a pasta com os relatórios")
+            if not pasta:
+                return
+            info.configure(text="Indexando…")
+
+            def tarefa():
+                n = archive.indexar_pasta(
+                    pasta, progresso=lambda m: self.after(
+                        0, info.configure, {"text": m}))
+                self.after(0, info.configure, {
+                    "text": f"{archive.total()} documento(s) no índice "
+                            f"(+{n} agora)"})
+            threading.Thread(target=tarefa, daemon=True).start()
+
+        ctk.CTkButton(tab, text="📁  Indexar uma pasta…", height=30,
+                      fg_color="gray50", command=indexar_pasta).pack(
+            fill="x", pady=(6, 0))
+
+    # -------------------------------------------------------- memória
+
+    def _build_memory_tab(self, tab):
+        mem = memory.load()
+        frame = ctk.CTkScrollableFrame(tab, fg_color="transparent")
+        frame.pack(fill="both", expand=True)
+
+        ctk.CTkLabel(frame, anchor="w", wraplength=310, text_color="gray",
+                     text="Textos oficiais do serviço. O app avisa quando um "
+                          "relatório traz esses trechos com diferenças.").pack(
+            fill="x", pady=(4, 6))
+
+        nomes = list(mem["blocos"]) or ["Descrição do serviço"]
+        bloco_var = ctk.StringVar(value=nomes[0])
+        seletor = ctk.CTkOptionMenu(frame, values=nomes, variable=bloco_var,
+                                    dynamic_resizing=False)
+        seletor.pack(fill="x")
+        nome_entry = ctk.CTkEntry(frame, placeholder_text="Nome do bloco")
+        nome_entry.pack(fill="x", pady=(6, 4))
+        nome_entry.insert(0, bloco_var.get())
+        txt = ctk.CTkTextbox(frame, height=150)
+        txt.pack(fill="x")
+        txt.insert("1.0", mem["blocos"].get(bloco_var.get(), ""))
+
+        def trocar(nome):
+            nome_entry.delete(0, "end")
+            nome_entry.insert(0, nome)
+            txt.delete("1.0", "end")
+            txt.insert("1.0", mem["blocos"].get(nome, ""))
+        seletor.configure(command=trocar)
+
+        aviso = ctk.CTkLabel(frame, text="", text_color=OK_COLOR)
+
+        def salvar_bloco():
+            nome = nome_entry.get().strip()
+            corpo = txt.get("1.0", "end").strip()
+            if not nome:
+                return
+            mem["blocos"][nome] = corpo
+            memory.save(mem)
+            seletor.configure(values=list(mem["blocos"]))
+            bloco_var.set(nome)
+            aviso.configure(text="✓ Bloco salvo")
+            self.after(2000, lambda: aviso.configure(text=""))
+
+        def apagar_bloco():
+            mem["blocos"].pop(nome_entry.get().strip(), None)
+            memory.save(mem)
+            restantes = list(mem["blocos"]) or ["Descrição do serviço"]
+            seletor.configure(values=restantes)
+            bloco_var.set(restantes[0])
+            trocar(restantes[0])
+
+        linha = ctk.CTkFrame(frame, fg_color="transparent")
+        linha.pack(fill="x", pady=6)
+        ctk.CTkButton(linha, text="Salvar bloco", fg_color=ACCENT,
+                      hover_color=ACCENT_HOVER,
+                      command=salvar_bloco).pack(side="left", expand=True,
+                                                 fill="x", padx=(0, 4))
+        ctk.CTkButton(linha, text="Apagar", fg_color="gray50", width=80,
+                      command=apagar_bloco).pack(side="left")
+        aviso.pack()
+
+        # ---- perfis ----
+        ctk.CTkLabel(frame, anchor="w", text="Perfis de documento",
+                     font=ctk.CTkFont(size=12, weight="bold")).pack(
+            fill="x", pady=(14, 2))
+        editaveis = [n for n in mem["perfis"] if n != "Detectar automaticamente"]
+        perfil_var = ctk.StringVar(value=editaveis[0])
+        psel = ctk.CTkOptionMenu(frame, values=editaveis, variable=perfil_var,
+                                 dynamic_resizing=False)
+        psel.pack(fill="x")
+        ctk.CTkLabel(frame, anchor="w", text_color="gray",
+                     text="Assinatura (uma linha por rótulo; vazio = manter "
+                          "a do documento)").pack(fill="x", pady=(6, 2))
+        assin = ctk.CTkTextbox(frame, height=60)
+        assin.pack(fill="x")
+        instr = ctk.CTkEntry(frame, placeholder_text="Instrução fixa (opcional)")
+        instr.pack(fill="x", pady=(6, 0))
+
+        def carregar_perfil(nome):
+            p = mem["perfis"].get(nome, {})
+            assin.delete("1.0", "end")
+            assin.insert("1.0", "\n".join(p.get("assinatura", [])))
+            instr.delete(0, "end")
+            instr.insert(0, p.get("instrucoes", ""))
+        carregar_perfil(perfil_var.get())
+        psel.configure(command=carregar_perfil)
+
+        pav = ctk.CTkLabel(frame, text="", text_color=OK_COLOR)
+
+        def salvar_perfil():
+            nome = perfil_var.get()
+            p = mem["perfis"].setdefault(nome, {})
+            p["assinatura"] = [l.strip() for l in
+                               assin.get("1.0", "end").splitlines() if l.strip()]
+            p["instrucoes"] = instr.get().strip()
+            memory.save(mem)
+            pav.configure(text="✓ Perfil salvo")
+            self.after(2000, lambda: pav.configure(text=""))
+
+        ctk.CTkButton(frame, text="Salvar perfil", fg_color=ACCENT,
+                      hover_color=ACCENT_HOVER,
+                      command=salvar_perfil).pack(fill="x", pady=6)
+        pav.pack()
+
     def _build_settings_tab(self, tab):
         frame = ctk.CTkScrollableFrame(tab, fg_color="transparent")
         frame.pack(fill="both", expand=True)
@@ -290,13 +468,23 @@ class App(TkinterDnD.Tk):
         key.insert(0, self.cfg.get("api_key", ""))
 
         field("Modelo de IA")
-        rev = {v: k for k, v in ai_client.MODEL_CHOICES.items()}
+        rev = {v["id"]: k for k, v in ai_client.MODEL_CHOICES.items()}
         cur_id = self.cfg.get("model", ai_client.DEFAULT_MODEL)
         model_var = ctk.StringVar(
             value=rev.get(cur_id, next(iter(ai_client.MODEL_CHOICES))))
+        custo_lbl = ctk.CTkLabel(frame, anchor="w", text_color="gray",
+                                 font=ctk.CTkFont(size=11), text="")
+
+        def _mostrar_custo(rotulo=None):
+            r = rotulo or model_var.get()
+            custo_lbl.configure(
+                text=ai_client.MODEL_CHOICES.get(r, {}).get("custo", ""))
+
         ctk.CTkOptionMenu(frame, values=list(ai_client.MODEL_CHOICES),
                           variable=model_var, dynamic_resizing=False,
-                          width=320).pack(fill="x")
+                          width=320, command=_mostrar_custo).pack(fill="x")
+        custo_lbl.pack(fill="x")
+        _mostrar_custo()
 
         field("Termos protegidos (a IA nunca corrige) — um por linha")
         terms = ctk.CTkTextbox(frame, height=110)
@@ -322,8 +510,7 @@ class App(TkinterDnD.Tk):
             lista = [t.strip() for t in terms.get("1.0", "end").splitlines()
                      if t.strip()]
             self.cfg.update(api_key=key.get().strip(),
-                            model=ai_client.MODEL_CHOICES.get(
-                                model_var.get(), ai_client.DEFAULT_MODEL),
+                            model=ai_client.model_id(model_var.get()),
                             generate_pdf=pdf.get(),
                             always_on_top=bool(top_var.get()),
                             theme=theme_var.get(),
@@ -409,7 +596,7 @@ class App(TkinterDnD.Tk):
             on_progress=lambda m: self.after(0, self._set_status, m, "gray"),
             on_done=lambda r: self.after(0, self._done, r),
             on_error=lambda e: self.after(0, self._fail, e),
-            want_pdf=want_pdf)
+            want_pdf=want_pdf, perfil=self.perfil_var.get())
         job.start()
 
     def _reprocess(self):

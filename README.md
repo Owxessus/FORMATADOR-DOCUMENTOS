@@ -24,7 +24,7 @@ O próprio app guia esse processo no primeiro uso. Em resumo:
 
 1. Crie uma conta gratuita em [openrouter.ai](https://openrouter.ai);
 2. Em **Keys**, clique em *Create Key* e copie a chave (`sk-or-v1-…`);
-3. Em **Credits**, adicione créditos — com o modelo padrão (**Gemini 3.7 Flash**), cada relatório custa cerca de **US$ 0,01**, então **US$ 5 rendem centenas de documentos**;
+3. Em **Credits**, adicione créditos. Há três modelos no menu de configurações, do mais barato ao mais caro: **GPT-5.6 Luna** (esforço máximo, ~US$ 0,005/relatório), **Gemini 3.7 Flash** (padrão, ~US$ 0,01) e **Claude Sonnet 5** (~US$ 0,05). Com o padrão, **US$ 5 rendem centenas de documentos**;
 4. Cole a chave no app e clique em **Testar conexão**.
 
 > **Privacidade (importante):** os relatórios podem conter dados sensíveis. Na sua conta OpenRouter, acesse *Settings → Privacy* e **desative** o uso dos seus dados para treinamento de modelos.
@@ -36,6 +36,26 @@ O próprio app guia esse processo no primeiro uso. Em resumo:
 - O campo *"Instruções adicionais"* é opcional: use para pedidos pontuais, como "não mexa no terceiro parágrafo" ou "assinatura como Gerente";
 - **Vários arquivos de uma vez**: solte quantos quiser — eles entram numa fila e são processados em sequência;
 - Ao final, o botão **📂 Abrir pasta** leva direto aos arquivos gerados, e **🔁 Refazer com a instrução acima** reprocessa o mesmo documento com uma nova instrução, sem procurar o arquivo de novo.
+
+### Conferência automática de datas
+
+Antes de enviar qualquer coisa à IA, o app confere as datas do documento **por código** e avisa (sem alterar nada) quando encontra:
+
+- uma data posterior à data do relatório, sem indicação de agendamento;
+- um ano isolado que destoa da sequência ao redor — o erro de digitação clássico (um "2026" no meio de fatos de 2021).
+
+Os avisos aparecem junto ao resultado, para conferência antes do envio.
+
+### Memória base (aba *Memória*)
+
+Guarda o que é estável no serviço e não deveria ser redigitado a cada relatório — fica em `memoria.json`, separado das preferências, e **sobrevive às atualizações do app**:
+
+- **Blocos institucionais**: os textos oficiais (descrição do serviço, estrutura física, quadro de funcionários). Quando um relatório traz esse trecho com diferenças, o app avisa;
+- **Perfis de documento**: *Relatório Técnico*, *Relatório de Ocorrência* e *Relatório de Gerência* — cada um com sua assinatura (Equipe Técnica × Gerente) e instruções fixas. O perfil é detectado pelo título do documento ou escolhido no menu acima da área de drop.
+
+### Busca nos relatórios (aba *Busca*)
+
+Todo documento processado entra num índice local pesquisável, e a aba permite **indexar pastas antigas** de uma vez. A busca entende flexões e acentos: procurar por *"convulsão"* encontra *"convulsivos"*, e *"conselho tutelar"* encontra o trecho mesmo com erro de digitação no original. O índice fica só no computador — nada é enviado para fora.
 
 ### Termos protegidos
 
@@ -62,6 +82,9 @@ git tag v1.0.0 && git push --tags
 |---|---|
 | `app/docx_engine.py` | extrai parágrafos preservando timbre/assinaturas, reconstrói o docx formatado e gera o diff com tracked changes nativos (determinístico) |
 | `app/xlsx_engine.py` | modo planilha (números e fórmulas travados em código) |
+| `app/checks.py` | verificações determinísticas (consistência de datas, blocos canônicos) |
+| `app/memory.py` | memória base persistente: blocos institucionais e perfis de documento |
+| `app/archive.py` | índice pesquisável (SQLite FTS5) com busca por radical e sem acento |
 | `app/ai_client.py` | chamadas à OpenRouter (padrão: `google/gemini-3.7-flash`) com validação de formato, termos protegidos e custo por request |
 | `app/worker.py` | orquestração em thread + PDF opcional via Word (docx2pdf) |
 | `app/main.py` / `settings.py` | interface (widget/janela), onboarding e preferências |
