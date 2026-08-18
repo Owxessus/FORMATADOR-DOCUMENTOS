@@ -5,3 +5,4 @@ dist/
 *.spec
 tests/out/
 .venv/
+tests/fixtures/

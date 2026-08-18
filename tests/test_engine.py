@@ -1,22 +1,35 @@
 # -*- coding: utf-8 -*-
-"""Teste do motor com os 4 relatórios reais e corretor simulado
-(usa as correções feitas manualmente na sessão como gabarito)."""
+"""Teste do motor docx com documentos locais (não incluídos no repositório).
+
+Uso:
+    FIXTURES_DIR=/caminho/dos/docx python tests/test_engine.py
+
+Para cada NOME.docx em FIXTURES_DIR, se existir NOME_gabarito.py (com UNITS =
+[(kind, original, corrigido), ...]) o corretor simulado usa essas correções;
+sem gabarito, roda com corretor identidade (só formata) — a autoverificação
+continua valendo nos dois casos.
+"""
 import difflib
+import glob
+import importlib.util
+import os
 import re
 import sys
 
-sys.path.insert(0, "/home/claude/formatador-relatorios/app")
-sys.path.insert(0, "/home/claude/relatorios")
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "app"))
+import docx_engine as eng  # noqa: E402
 
-import docx_engine as eng
+FIXTURES = os.environ.get("FIXTURES_DIR",
+                          os.path.join(os.path.dirname(__file__), "fixtures"))
+OUT = os.path.join(os.path.dirname(__file__), "out")
+os.makedirs(OUT, exist_ok=True)
 
 
-def norm(t: str) -> str:
+def norm(t):
     return re.sub(r"\s+", " ", t).strip()
 
 
 def make_mock(units):
-    """corrector() que casa cada parágrafo extraído com o gabarito manual."""
     pairs = [(norm(o), c) for _, o, c in units]
 
     def corrector(texts, kinds, extra):
@@ -33,23 +46,29 @@ def make_mock(units):
     return corrector
 
 
-CASES = [
-    ("vivian",   "/home/claude/relatorios/vivian_original.docx",   "content_vivian"),
-    ("maria",    "/home/claude/relatorios/maria_original.docx",    "content_maria"),
-    ("pamela",   "/home/claude/relatorios/pamela_original.docx",   "content_pamela"),
-    ("caroliny", "/home/claude/relatorios/caroliny_original.docx", "content_caroliny"),
-]
+def load_units(py_path):
+    spec = importlib.util.spec_from_file_location("gabarito", py_path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod.UNITS
+
+
+docs = sorted(glob.glob(os.path.join(FIXTURES, "*.docx")))
+if not docs:
+    print(f"Nenhum .docx em {FIXTURES} — defina FIXTURES_DIR.")
+    sys.exit(0)
 
 ok_all = True
-for name, path, mod in CASES:
-    units = __import__(mod).UNITS
-    res = eng.process(path, make_mock(units),
-                      out_dir="/home/claude/formatador-relatorios/tests/out",
-                      progress=lambda m: None)
-    status = "OK " if res["verified"] else "FAIL"
+for path in docs:
+    name = os.path.splitext(os.path.basename(path))[0]
+    gab = os.path.join(FIXTURES, f"{name}_gabarito.py")
+    corrector = make_mock(load_units(gab)) if os.path.exists(gab) \
+        else (lambda ts, ks, e: list(ts))
+    res = eng.process(path, corrector, out_dir=OUT, progress=lambda m: None)
     ok_all &= res["verified"]
-    print(f"[{status}] {name}: {res['paragraphs']} parágrafos, "
-          f"{res['changed']} alterados, avisos={len(res['warnings'])}")
+    print(f"[{'OK ' if res['verified'] else 'FAIL'}] {name}: "
+          f"{res['paragraphs']} parágrafos, {res['changed']} alterados, "
+          f"avisos={len(res['warnings'])}")
     for w in res["warnings"]:
         print("        aviso:", w[:100])
 
