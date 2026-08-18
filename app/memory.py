@@ -71,7 +71,7 @@ def save(mem: dict) -> None:
 
 def detectar_perfil(paragraphs: list[str], mem: dict) -> str:
     """Escolhe o perfil pelo título do documento (primeiros parágrafos)."""
-    cabeca = " ".join(paragraphs[:6]).lower()
+    cabeca = " ".join(paragraphs[:14]).lower()
     melhor, tamanho = "Detectar automaticamente", 0
     for nome, p in mem.get("perfis", {}).items():
         for t in p.get("titulos", []):

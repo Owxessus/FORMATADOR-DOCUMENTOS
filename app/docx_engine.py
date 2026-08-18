@@ -97,14 +97,19 @@ def _classify(text: str, p_xml: str, index: int, total: int) -> str:
     t = text.strip()
     if _DATE_RE.match(t) and index <= 2:
         return "date"
-    if len(t) <= 60 and index <= 8 and not t.endswith((".", ";", ",")) and (
-            "relatório" in t.lower() or t.isupper()):
-        return "title"
-    if _FIELD_RE.match(t) and len(t.split(":")[0]) <= 40 and index <= 10:
-        return "field"
     if "<w:numPr>" in p_xml or (t and t[0] in BULLET_CHARS and len(t) > 2):
         return "b"
-    if len(t) <= 60 and t.endswith((":", ";")):
+    # CAMPO antes de TÍTULO: linhas "Rótulo: valor" (Nome:, D.N.:, SISA:)
+    # são campos mesmo escritas em maiúsculas.
+    if (_FIELD_RE.match(t) and len(t.split(":")[0]) <= 40
+            and len(t) <= 160 and index <= 25):
+        return "field"
+    # título do documento: linha curta que menciona "relatório"
+    if len(t) <= 60 and index <= 20 and not t.endswith((".", ";", ",")) \
+            and "relat" in t.lower():
+        return "title"
+    # subtítulo: linha curta em maiúsculas ou terminada em ":" / ";"
+    if len(t) <= 70 and (t.endswith((":", ";")) or (t.isupper() and len(t) > 3)):
         return "h"
     return "p"
 
@@ -270,6 +275,11 @@ def _clean_par(kind: str, text: str, bullet_numid) -> str:
     if kind == "field" and ":" in text:
         label, rest = text.split(":", 1)
         runs = _run(label + ":", bold=True) + _run(rest)
+    elif kind == "b" and ":" in text[:45]:
+        label, rest = text.split(":", 1)
+        runs = _run(label + ":", bold=True, italic=True) + _run(rest, italic=True)
+        if not bullet_numid:
+            runs = _run("–  ", **fmt) + runs
     elif kind == "b" and not bullet_numid:
         runs = _run("–  " + text, **fmt)  # fallback sem numbering
     else:
@@ -416,7 +426,9 @@ def override_signature(sig_xml: str, labels: list[str]) -> str:
     mantidos = []
     for p in _split_paragraphs(sig_xml):
         t = _para_text(p).strip()
-        if "<a:blip" in p or (t and set(t) <= set("_  ")):
+        # mantém imagens, a linha de assinatura e os parágrafos vazios —
+        # estes dão o espaço vertical que as imagens flutuantes ocupam.
+        if "<a:blip" in p or not t or set(t) <= set("_  ."):
             mantidos.append(p)
     centro = ('<w:pPr><w:spacing w:after="0" w:line="240" w:lineRule="auto"/>'
               f'<w:jc w:val="center"/>{_rpr(bold=True)}</w:pPr>')
@@ -488,7 +500,9 @@ def verify(final_path: str, redline_path: str) -> bool:
 
 
 def numbers_of(text: str) -> list[str]:
-    return sorted(re.findall(r"\d+", text))
+    """Números do texto, sem zeros à esquerda — assim “4/09” e “04/09”
+    são equivalentes e não disparam o alerta à toa."""
+    return sorted(str(int(n)) for n in re.findall(r"\d+", text))
 
 
 def numbers_preserved(orig: str, corr: str) -> bool:
