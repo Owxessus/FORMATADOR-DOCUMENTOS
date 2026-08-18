@@ -24,7 +24,7 @@ O próprio app guia esse processo no primeiro uso. Em resumo:
 
 1. Crie uma conta gratuita em [openrouter.ai](https://openrouter.ai);
 2. Em **Keys**, clique em *Create Key* e copie a chave (`sk-or-v1-…`);
-3. Em **Credits**, adicione créditos — **US$ 5 rendem de 50 a 150 relatórios** (cada documento custa entre US$ 0,03 e 0,10);
+3. Em **Credits**, adicione créditos — com o modelo padrão (**Gemini 3.7 Flash**), cada relatório custa cerca de **US$ 0,01**, então **US$ 5 rendem centenas de documentos**;
 4. Cole a chave no app e clique em **Testar conexão**.
 
 > **Privacidade (importante):** os relatórios podem conter dados sensíveis. Na sua conta OpenRouter, acesse *Settings → Privacy* e **desative** o uso dos seus dados para treinamento de modelos.
@@ -34,7 +34,12 @@ O próprio app guia esse processo no primeiro uso. Em resumo:
 - O app abre como um **widget compacto** que fica por cima das outras janelas — arraste o arquivo pra ele e pronto;
 - O botão **⤢** alterna para o modo janela completa, com **histórico** (custo por documento incluído) e **configurações**;
 - O campo *"Instruções adicionais"* é opcional: use para pedidos pontuais, como "não mexa no terceiro parágrafo" ou "assinatura como Gerente";
-- Ao final, o botão **📂 Abrir pasta** leva direto aos arquivos gerados.
+- **Vários arquivos de uma vez**: solte quantos quiser — eles entram numa fila e são processados em sequência;
+- Ao final, o botão **📂 Abrir pasta** leva direto aos arquivos gerados, e **🔁 Refazer com a instrução acima** reprocessa o mesmo documento com uma nova instrução, sem procurar o arquivo de novo.
+
+### Termos protegidos
+
+Em *Configurações* há uma lista de termos que a IA **nunca** pode alterar — já vem preenchida com as siglas do setor (CREAS, CAPS, SAMU, AVCB, CID, CREMESP…). Acrescente nomes de funcionários, unidades de saúde, bairros e medicamentos recorrentes: eles passam intactos pela revisão.
 
 Depois, é só abrir a versão `ALTERACOES_RASTREADAS` no Word e revisar: cada correção pode ser aceita ou rejeitada individualmente (aba *Revisão* → *Aceitar/Rejeitar*).
 
@@ -57,7 +62,7 @@ git tag v1.0.0 && git push --tags
 |---|---|
 | `app/docx_engine.py` | extrai parágrafos preservando timbre/assinaturas, reconstrói o docx formatado e gera o diff com tracked changes nativos (determinístico) |
 | `app/xlsx_engine.py` | modo planilha (números e fórmulas travados em código) |
-| `app/ai_client.py` | chamadas à OpenRouter com validação de formato e custo por request |
+| `app/ai_client.py` | chamadas à OpenRouter (padrão: `google/gemini-3.7-flash`) com validação de formato, termos protegidos e custo por request |
 | `app/worker.py` | orquestração em thread + PDF opcional via Word (docx2pdf) |
 | `app/main.py` / `settings.py` | interface (widget/janela), onboarding e preferências |
 

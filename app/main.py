@@ -49,6 +49,8 @@ class App(TkinterDnD.Tk):
         self.minsize(340, 300)
         self.widget_mode = True
         self.busy = False
+        self.queue: list[str] = []
+        self.last_path: str | None = None
         self._apply_window_mode(initial=True)
 
         self.container = ctk.CTkFrame(self, corner_radius=0,
@@ -242,6 +244,9 @@ class App(TkinterDnD.Tk):
         self.open_btn = ctk.CTkButton(left, text="📂  Abrir pasta",
                                       fg_color=OK_COLOR, height=34,
                                       command=lambda: None)
+        self.redo_btn = ctk.CTkButton(
+            left, text="🔁  Refazer com a instrução acima", height=30,
+            fg_color="gray50", command=self._reprocess)
 
         # painel lateral (modo janela)
         if not self.widget_mode:
@@ -285,9 +290,18 @@ class App(TkinterDnD.Tk):
         key.insert(0, self.cfg.get("api_key", ""))
 
         field("Modelo de IA")
-        model = ctk.CTkEntry(frame)
-        model.pack(fill="x")
-        model.insert(0, self.cfg.get("model", ai_client.DEFAULT_MODEL))
+        rev = {v: k for k, v in ai_client.MODEL_CHOICES.items()}
+        cur_id = self.cfg.get("model", ai_client.DEFAULT_MODEL)
+        model_var = ctk.StringVar(
+            value=rev.get(cur_id, next(iter(ai_client.MODEL_CHOICES))))
+        ctk.CTkOptionMenu(frame, values=list(ai_client.MODEL_CHOICES),
+                          variable=model_var, dynamic_resizing=False,
+                          width=320).pack(fill="x")
+
+        field("Termos protegidos (a IA nunca corrige) — um por linha")
+        terms = ctk.CTkTextbox(frame, height=110)
+        terms.pack(fill="x")
+        terms.insert("1.0", "\n".join(self.cfg.get("protected_terms", [])))
 
         field("Gerar PDF da versão final")
         pdf = ctk.CTkSegmentedButton(frame,
@@ -305,11 +319,15 @@ class App(TkinterDnD.Tk):
                                variable=theme_var).pack(fill="x")
 
         def save_all():
+            lista = [t.strip() for t in terms.get("1.0", "end").splitlines()
+                     if t.strip()]
             self.cfg.update(api_key=key.get().strip(),
-                            model=model.get().strip() or ai_client.DEFAULT_MODEL,
+                            model=ai_client.MODEL_CHOICES.get(
+                                model_var.get(), ai_client.DEFAULT_MODEL),
                             generate_pdf=pdf.get(),
                             always_on_top=bool(top_var.get()),
-                            theme=theme_var.get())
+                            theme=theme_var.get(),
+                            protected_terms=lista)
             settings.save(self.cfg)
             ctk.set_appearance_mode(theme_var.get())
             saved.configure(text="✓ Salvo")
@@ -324,31 +342,64 @@ class App(TkinterDnD.Tk):
 
     def _pick_file(self):
         from tkinter import filedialog
-        path = filedialog.askopenfilename(
-            title="Escolha o documento",
+        paths = filedialog.askopenfilenames(
+            title="Escolha um ou mais documentos",
             filetypes=[("Documentos", "*.docx *.xlsx")])
-        if path:
-            self._start(path)
+        if paths:
+            self._enqueue(list(paths))
 
     def _on_drop(self, event):
-        raw = event.data.strip()
-        path = raw[1:-1] if raw.startswith("{") and raw.endswith("}") else \
-            raw.split()[0]
+        try:
+            paths = list(self.tk.splitlist(event.data))
+        except Exception:  # noqa: BLE001
+            raw = event.data.strip()
+            paths = [raw[1:-1] if raw.startswith("{") else raw]
+        self._enqueue(paths)
+
+    # ------------------------------------------------------------ fila
+
+    def _enqueue(self, paths: list[str]):
+        validos = [p for p in paths if os.path.isfile(p)
+                   and os.path.splitext(p)[1].lower() in (".docx", ".xlsx")]
+        if not validos:
+            self._set_status("Solte arquivos .docx ou .xlsx.", ERR_COLOR)
+            return
+        self.queue.extend(validos)
+        if not self.busy:
+            self._next_in_queue()
+
+    def _next_in_queue(self):
+        if not self.queue:
+            return
+        path = self.queue.pop(0)
         self._start(path)
+
+    def _ask_pdf(self) -> bool:
+        pref = self.cfg.get("generate_pdf", "perguntar")
+        if pref == "sempre":
+            return True
+        if pref == "nunca":
+            return False
+        from tkinter import messagebox
+        return bool(messagebox.askyesno(
+            "PDF", "Gerar também um PDF da versão final?"))
 
     def _start(self, path: str):
         if self.busy:
-            return
-        if not os.path.isfile(path):
-            self._set_status(f"Arquivo não encontrado: {path}", ERR_COLOR)
             return
         if not self.cfg.get("api_key"):
             self._set_status("Configure a chave OpenRouter primeiro "
                              "(modo janela → Configurações).", ERR_COLOR)
             return
+        self.last_path = path
+        want_pdf = (os.path.splitext(path)[1].lower() == ".docx"
+                    and self._ask_pdf())
         self.busy = True
         self.open_btn.pack_forget()
-        self.drop_label.configure(text="⏳\n\nProcessando…")
+        self.redo_btn.pack_forget()
+        restantes = f"  (+{len(self.queue)} na fila)" if self.queue else ""
+        self.drop_label.configure(
+            text=f"⏳\n\nProcessando…{restantes}\n{os.path.basename(path)[:34]}")
         self.progress.pack(fill="x", pady=(4, 2))
         self.progress.start()
         self._set_status("Iniciando…", "gray")
@@ -357,8 +408,14 @@ class App(TkinterDnD.Tk):
             path, self.cfg, self.extra_entry.get().strip(),
             on_progress=lambda m: self.after(0, self._set_status, m, "gray"),
             on_done=lambda r: self.after(0, self._done, r),
-            on_error=lambda e: self.after(0, self._fail, e))
+            on_error=lambda e: self.after(0, self._fail, e),
+            want_pdf=want_pdf)
         job.start()
+
+    def _reprocess(self):
+        """Refaz o último arquivo com a instrução atual do campo."""
+        if self.last_path and not self.busy:
+            self._start(self.last_path)
 
     def _set_status(self, msg: str, color: str = "gray"):
         self.status.configure(text=msg, text_color=color)
@@ -376,9 +433,11 @@ class App(TkinterDnD.Tk):
             f"✓ {res['changed']} correções em {res['paragraphs']} "
             f"parágrafos{extra}{warn}",
             OK_COLOR if res.get("verified") else ERR_COLOR)
-        self.open_btn.configure(
-            command=lambda: open_folder(res["final"]))
+        self.open_btn.configure(command=lambda: open_folder(res["final"]))
         self.open_btn.pack(fill="x", pady=(4, 0))
+        self.redo_btn.pack(fill="x", pady=(4, 0))
+        if self.queue:
+            self.after(600, self._next_in_queue)
 
     def _fail(self, err: str):
         self.busy = False
@@ -387,6 +446,8 @@ class App(TkinterDnD.Tk):
         self.drop_label.configure(
             text="📄\n\nSolte o relatório aqui\n(.docx ou .xlsx)")
         self._set_status(f"✗ {err}", ERR_COLOR)
+        if self.queue:
+            self.after(1200, self._next_in_queue)
 
 
 def main():

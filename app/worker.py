@@ -17,8 +17,9 @@ class Job(threading.Thread):
     (chamados a partir da thread — a UI deve re-postar com .after())."""
 
     def __init__(self, path: str, cfg: dict, extra: str,
-                 on_progress, on_done, on_error):
+                 on_progress, on_done, on_error, want_pdf: bool = False):
         super().__init__(daemon=True)
+        self.want_pdf = want_pdf
         self.path = path
         self.cfg = cfg
         self.extra = extra
@@ -31,9 +32,12 @@ class Job(threading.Thread):
             client = ai_client.OpenRouterClient(
                 self.cfg["api_key"], model=self.cfg["model"])
 
+            protected = self.cfg.get("protected_terms") or []
+
             def corrector(texts, kinds, extra):
                 return client.corrector(texts, kinds, extra,
-                                        progress=self.on_progress)
+                                        progress=self.on_progress,
+                                        protected=protected)
 
             ext = os.path.splitext(self.path)[1].lower()
             out_dir = self.cfg.get("out_dir") or None
@@ -51,7 +55,7 @@ class Job(threading.Thread):
 
             res["cost"] = client.total_cost
             res["pdf"] = None
-            if ext == ".docx" and self.cfg.get("generate_pdf") == "sempre":
+            if ext == ".docx" and self.want_pdf:
                 res["pdf"] = self._try_pdf(res["final"])
 
             settings.add_history(self.cfg, {

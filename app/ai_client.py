@@ -9,7 +9,16 @@ import requests
 
 API_URL = "https://openrouter.ai/api/v1/chat/completions"
 KEY_URL = "https://openrouter.ai/api/v1/key"
-DEFAULT_MODEL = "anthropic/claude-sonnet-4.5"
+DEFAULT_MODEL = "google/gemini-3.7-flash"
+
+# Opções oferecidas no menu de configurações (rótulo → id na OpenRouter).
+MODEL_CHOICES = {
+    "Gemini 3.7 Flash — rápido e econômico (padrão)": "google/gemini-3.7-flash",
+    "Gemini 3.6 Flash — alternativa": "google/gemini-3.6-flash",
+    "Claude Sonnet 4.5 — mais caro, texto mais refinado":
+        "anthropic/claude-sonnet-4.5",
+    "GPT-5 mini — alternativa": "openai/gpt-5-mini",
+}
 
 SYSTEM_PROMPT = """Você é um revisor profissional de documentos institucionais \
 brasileiros (relatórios de assistência social, ocorrências, respostas a órgãos \
@@ -26,6 +35,7 @@ exatamente um parágrafo de saída, na mesma posição.
 clareza, sem mudar o conteúdo.
 5. Se um parágrafo já estiver correto, devolva-o exatamente igual.
 6. Padronize horários no formato 07h00 e mantenha datas como estão.
+7. NUNCA altere siglas, nomes próprios, nomes de medicamentos, unidades de saúde, bairros ou termos técnicos — mesmo que pareçam grafados de forma estranha. Na dúvida, deixe como está.
 
 FORMATO: você receberá JSON {"paragrafos": [{"i": 0, "texto": "..."}, ...]} e \
 deve responder APENAS com JSON válido no mesmo formato, mesmos índices, mesma \
@@ -92,9 +102,15 @@ class OpenRouterClient:
         return json.loads(m.group(0))["paragrafos"]
 
     def _correct_batch(self, batch: list[tuple[int, str]],
-                       extra: str) -> dict[int, str]:
+                       extra: str,
+                       protected: list[str] | None = None) -> dict[int, str]:
         user = {"paragrafos": [{"i": i, "texto": t} for i, t in batch]}
         msgs = [{"role": "system", "content": SYSTEM_PROMPT}]
+        if protected:
+            msgs.append({"role": "system", "content":
+                         "Termos que devem permanecer EXATAMENTE como estão "
+                         "(nunca corrigir, acentuar ou expandir): "
+                         + ", ".join(protected)})
         if extra.strip():
             msgs.append({"role": "system",
                          "content": "Instruções adicionais do usuário "
@@ -119,7 +135,8 @@ class OpenRouterClient:
 
     def corrector(self, texts: list[str], kinds: list[str],
                   extra_instructions: str = "",
-                  progress=lambda msg: None) -> list[str]:
+                  progress=lambda msg: None,
+                  protected: list[str] | None = None) -> list[str]:
         """Assinatura compatível com docx_engine.process()."""
         indexed = list(enumerate(texts))
         batches, cur, size = [], [], 0
@@ -135,5 +152,5 @@ class OpenRouterClient:
         result: dict[int, str] = {}
         for n, b in enumerate(batches, 1):
             progress(f"Corrigindo texto com IA… (parte {n}/{len(batches)})")
-            result.update(self._correct_batch(b, extra_instructions))
+            result.update(self._correct_batch(b, extra_instructions, protected))
         return [result[i] for i in range(len(texts))]

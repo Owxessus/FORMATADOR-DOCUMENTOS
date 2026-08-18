@@ -10,13 +10,19 @@ APP_NAME = "FormatadorRelatorios"
 
 DEFAULTS = {
     "api_key": "",
-    "model": "anthropic/claude-sonnet-4.5",
+    "model": "google/gemini-3.7-flash",
     "always_on_top": True,
     "generate_pdf": "perguntar",   # sempre | nunca | perguntar
     "out_dir": "",                 # vazio = mesma pasta do arquivo
     "onboarded": False,
     "history": [],                 # [{file, when, cost, changed}]
     "theme": "light",              # light | dark
+    # termos que a IA nunca deve "corrigir" (siglas, nomes, medicações)
+    "protected_terms": [
+        "CAE", "CREAS", "CRAS", "CAPS", "SAMU", "UPA", "UBS", "AMA", "AME",
+        "GCM", "INSS", "AVCB", "EPIs", "OSC", "APOIO", "CID", "CRM", "CREMESP",
+        "CRP", "CRESS", "SUAS", "PAEFI", "LGBTQIAPN+", "Penha",
+    ],
 }
 
 
