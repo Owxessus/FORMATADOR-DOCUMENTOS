@@ -107,9 +107,9 @@ O pedido de pasta é interpretado pelo app e **removido** antes de o texto ir pa
 
 ### Citações de outros documentos (itálico)
 
-Trechos **copiados de outro documento** — o histórico de outro serviço, um parecer, um despacho — costumam vir colados em itálico. O app detecta esses blocos (itálico, fora de lista, em sequência de três parágrafos ou mais) e os **preserva exatamente como estão**: não vão para a IA, não são reformatados e não entram no diff.
+Trechos **copiados de outro documento** — o histórico de outro serviço, um parecer, um despacho — costumam vir colados em itálico. O app detecta esses blocos (itálico, fora de lista, em sequência de três parágrafos ou mais) e **mantém o itálico**, que é o que identifica o trecho como citação.
 
-Isso é proposital: alterar a grafia de um texto citado descaracteriza a fonte. Mesmo que o trecho destoe do resto do relatório — nomes em caixa baixa, siglas sem maiúscula, acentos faltando —, ele sai idêntico ao original. Um aviso informa quantos parágrafos foram preservados assim.
+O texto em si é **revisado normalmente**: ortografia, acentuação e pontuação são corrigidas como em qualquer outro parágrafo, e as mudanças aparecem no diff. O que não muda é a marca visual da citação. Um aviso informa quantos parágrafos foram tratados assim.
 
 ### Completude da revisão e segunda passada
 

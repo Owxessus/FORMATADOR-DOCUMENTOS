@@ -300,11 +300,18 @@ def _ppr(kind: str, bullet_numid: int | None) -> str:
                 '<w:spacing w:after="120" w:line="360" w:lineRule="auto"/>'
                 '<w:ind w:left="1077" w:hanging="357"/>'
                 f'<w:jc w:val="both"/>{_rpr(italic=True)}</w:pPr>')
+    if kind == "quote":
+        # citação de outro documento: mesma diagramação do texto, mas o
+        # itálico é preservado porque é o que a identifica como citação
+        return (f'<w:pPr>{spacing}<w:ind w:firstLine="709"/>'
+                f'<w:jc w:val="both"/>{_rpr(italic=True)}</w:pPr>')
     return (f'<w:pPr>{spacing}<w:ind w:firstLine="709"/>'
             f'<w:jc w:val="both"/>{_rpr()}</w:pPr>')
 
 
 def _fmt_for(kind: str) -> dict:
+    if kind == "quote":
+        return dict(italic=True)
     if kind == "title":
         return dict(bold=True, sz=28)
     if kind == "h":
@@ -486,9 +493,6 @@ def _build(model: DocModel, out_path: str, redline: bool) -> None:
     numid = _ensure_bullet_numbering(files) if has_bullets else None
     body = []
     for p in model.paragraphs:
-        if p.kind == "quote":       # citação de outro documento: intocada
-            body.append(p.xml)
-            continue
         corr = p.corrected if p.corrected is not None else p.text
         if corr == "" and not redline:
             continue
@@ -585,20 +589,15 @@ def process(docx_path: str, corrector, out_dir: str | None = None,
             model.warnings.append(f"Verificação não pôde ser feita: {e}")
 
     progress("Corrigindo texto com IA…")
-    revisar = [i for i, p in enumerate(model.paragraphs) if p.kind != "quote"]
-    n_cit = len(model.paragraphs) - len(revisar)
+    n_cit = sum(1 for p in model.paragraphs if p.kind == "quote")
     if n_cit:
         model.warnings.append(
-            f"{n_cit} parágrafo(s) em itálico foram preservados como citação "
-            f"de outro documento — não corrigidos nem reformatados.")
-    textos = [model.paragraphs[i].text for i in revisar]
-    kinds = [model.paragraphs[i].kind for i in revisar]
-    parciais = corrector(textos, kinds, extra_instructions)
-    if len(parciais) != len(revisar):
+            f"{n_cit} parágrafo(s) são citação de outro documento: o texto "
+            f"foi revisado normalmente e o itálico foi mantido.")
+    kinds = [p.kind for p in model.paragraphs]
+    corrected = corrector(model.editable_texts, kinds, extra_instructions)
+    if len(corrected) != len(model.paragraphs):
         raise ValueError("A correção devolveu número inesperado de parágrafos.")
-    corrected = [p.text for p in model.paragraphs]
-    for i, c in zip(revisar, parciais):
-        corrected[i] = c
 
     for p, corr in zip(model.paragraphs, corrected):
         if not numbers_preserved(p.text, corr):
