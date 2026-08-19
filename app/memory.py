@@ -31,8 +31,8 @@ PERFIS_PADRAO = {
         "blocos": [],
         "titulos": ["ocorrência", "ocorrencia"]},
     "Relatório de Gerência / resposta a órgão": {
-        "assinatura": ["Gerente",
-                       "Centro de Acolhida Especial para Famílias Penha"],
+        # ajuste em Memória → Perfis para o nome da sua unidade
+        "assinatura": ["Gerente"],
         "instrucoes": "",
         "blocos": ["Descrição do serviço", "Estrutura física",
                    "Quadro de funcionários"],

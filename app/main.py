@@ -17,10 +17,13 @@ from tkinterdnd2 import DND_FILES, TkinterDnD
 import ai_client
 import archive
 import memory
+import outdir
 import settings
+import updater
+import version
 import worker
 
-APP_TITLE = "Formatador de Relatórios"
+APP_TITLE = f"Formatador de Relatórios  v{version.VERSION}"
 WIDGET_SIZE = "360x330"
 FULL_SIZE = "820x560"
 
@@ -53,6 +56,7 @@ class App(TkinterDnD.Tk):
         self.busy = False
         self.queue: list[str] = []
         self.last_path: str | None = None
+        self.update_info: dict | None = None
         self._apply_window_mode(initial=True)
 
         self.container = ctk.CTkFrame(self, corner_radius=0,
@@ -63,6 +67,43 @@ class App(TkinterDnD.Tk):
             self._show_onboarding()
         else:
             self._show_main()
+        if self.cfg.get("check_updates", True):
+            self._checar_atualizacao()
+
+    # -------------------------------------------------------- atualização
+
+    def _checar_atualizacao(self, avisar_sem_novidade=False):
+        def tarefa():
+            info = updater.checar()
+            self.after(0, self._resultado_atualizacao, info, avisar_sem_novidade)
+        threading.Thread(target=tarefa, daemon=True).start()
+
+    def _resultado_atualizacao(self, info, avisar):
+        self.update_info = info
+        if info:
+            self._show_main()
+        elif avisar:
+            self._set_status("Você já está na versão mais recente.", OK_COLOR)
+
+    def _atualizar_agora(self):
+        info = self.update_info
+        if not info:
+            return
+        if not info.get("url") or not getattr(sys, "frozen", False):
+            import webbrowser
+            webbrowser.open(updater.PAGINA)
+            return
+        self._set_status("Atualizando…", "gray")
+
+        def tarefa():
+            try:
+                updater.baixar_e_instalar(
+                    info["url"],
+                    progresso=lambda m: self.after(0, self._set_status, m,
+                                                   "gray"))
+            except Exception as e:  # noqa: BLE001
+                self.after(0, self._set_status, f"✗ {e}", ERR_COLOR)
+        threading.Thread(target=tarefa, daemon=True).start()
 
     # ------------------------------------------------------------- janela
 
@@ -208,6 +249,12 @@ class App(TkinterDnD.Tk):
         ctk.CTkButton(bar, text="⤢" if self.widget_mode else "⤡", width=34,
                       height=28, fg_color="gray70",
                       command=self._toggle_mode).pack(side="right")
+
+        if self.update_info:
+            ctk.CTkButton(
+                outer, height=30, fg_color="#B7791F", hover_color="#975A16",
+                text=f"⬆  Atualizar para a versão {self.update_info['versao']}",
+                command=self._atualizar_agora).pack(fill="x", pady=(6, 0))
 
         body = ctk.CTkFrame(outer, fg_color="transparent")
         body.pack(fill="both", expand=True, pady=(8, 0))
@@ -491,6 +538,35 @@ class App(TkinterDnD.Tk):
         terms.pack(fill="x")
         terms.insert("1.0", "\n".join(self.cfg.get("protected_terms", [])))
 
+        field("Onde salvar os arquivos gerados")
+        modo_var = ctk.StringVar(value=self.cfg.get("out_mode", "mesma"))
+        ctk.CTkSegmentedButton(
+            frame, values=["mesma", "fixa", "perguntar"],
+            variable=modo_var).pack(fill="x")
+        pasta_lbl = ctk.CTkLabel(
+            frame, anchor="w", text_color="gray", font=ctk.CTkFont(size=11),
+            text=self.cfg.get("out_dir") or "(mesma pasta do arquivo original)")
+        pasta_lbl.pack(fill="x")
+        escolhida = {"path": self.cfg.get("out_dir", "")}
+
+        def escolher_pasta():
+            from tkinter import filedialog
+            d = filedialog.askdirectory(title="Pasta fixa de saída")
+            if d:
+                escolhida["path"] = d
+                pasta_lbl.configure(text=d)
+                modo_var.set("fixa")
+
+        ctk.CTkButton(frame, text="Escolher pasta fixa…", height=28,
+                      fg_color="gray50", command=escolher_pasta).pack(
+            fill="x", pady=(4, 0))
+        ctk.CTkLabel(frame, anchor="w", text_color="gray", wraplength=310,
+                     font=ctk.CTkFont(size=11),
+                     text=("Dica: você também pode escrever no campo de "
+                           "instruções “salvar na área de trabalho” ou "
+                           "“salvar na pasta Relatórios” — vale só para "
+                           "aquele arquivo.")).pack(fill="x", pady=(2, 0))
+
         field("Gerar PDF da versão final")
         pdf = ctk.CTkSegmentedButton(frame,
                                      values=["sempre", "perguntar", "nunca"])
@@ -506,6 +582,18 @@ class App(TkinterDnD.Tk):
         ctk.CTkSegmentedButton(frame, values=["light", "dark"],
                                variable=theme_var).pack(fill="x")
 
+        upd_var = ctk.BooleanVar(value=self.cfg.get("check_updates", True))
+        ctk.CTkCheckBox(frame, text="Avisar quando houver nova versão",
+                        variable=upd_var).pack(anchor="w", pady=(10, 4))
+        ctk.CTkButton(frame, text="Procurar atualização agora", height=28,
+                      fg_color="gray50",
+                      command=lambda: self._checar_atualizacao(True)).pack(
+            fill="x")
+        ctk.CTkLabel(frame, anchor="w", text_color="gray",
+                     font=ctk.CTkFont(size=11),
+                     text=f"Versão instalada: {version.VERSION}").pack(
+            fill="x", pady=(2, 0))
+
         def save_all():
             lista = [t.strip() for t in terms.get("1.0", "end").splitlines()
                      if t.strip()]
@@ -514,7 +602,10 @@ class App(TkinterDnD.Tk):
                             generate_pdf=pdf.get(),
                             always_on_top=bool(top_var.get()),
                             theme=theme_var.get(),
-                            protected_terms=lista)
+                            protected_terms=lista,
+                            out_mode=modo_var.get(),
+                            out_dir=escolhida["path"],
+                            check_updates=bool(upd_var.get()))
             settings.save(self.cfg)
             ctk.set_appearance_mode(theme_var.get())
             saved.configure(text="✓ Salvo")
@@ -581,6 +672,15 @@ class App(TkinterDnD.Tk):
         self.last_path = path
         want_pdf = (os.path.splitext(path)[1].lower() == ".docx"
                     and self._ask_pdf())
+
+        def perguntar_pasta():
+            from tkinter import filedialog
+            return filedialog.askdirectory(
+                title="Onde salvar os arquivos gerados?")
+
+        pasta, instrucoes = outdir.resolver(
+            self.cfg, path, perguntar_fn=perguntar_pasta,
+            instrucoes=self.extra_entry.get().strip())
         self.busy = True
         self.open_btn.pack_forget()
         self.redo_btn.pack_forget()
@@ -589,14 +689,15 @@ class App(TkinterDnD.Tk):
             text=f"⏳\n\nProcessando…{restantes}\n{os.path.basename(path)[:34]}")
         self.progress.pack(fill="x", pady=(4, 2))
         self.progress.start()
-        self._set_status("Iniciando…", "gray")
+        destino = os.path.basename(pasta) if pasta else "mesma pasta do arquivo"
+        self._set_status(f"Iniciando… (salvando em: {destino})", "gray")
 
         job = worker.Job(
-            path, self.cfg, self.extra_entry.get().strip(),
+            path, self.cfg, instrucoes,
             on_progress=lambda m: self.after(0, self._set_status, m, "gray"),
             on_done=lambda r: self.after(0, self._done, r),
             on_error=lambda e: self.after(0, self._fail, e),
-            want_pdf=want_pdf, perfil=self.perfil_var.get())
+            want_pdf=want_pdf, perfil=self.perfil_var.get(), out_dir=pasta)
         job.start()
 
     def _reprocess(self):

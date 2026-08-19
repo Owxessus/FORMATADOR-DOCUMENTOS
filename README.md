@@ -37,6 +37,22 @@ O próprio app guia esse processo no primeiro uso. Em resumo:
 - **Vários arquivos de uma vez**: solte quantos quiser — eles entram numa fila e são processados em sequência;
 - Ao final, o botão **📂 Abrir pasta** leva direto aos arquivos gerados, e **🔁 Refazer com a instrução acima** reprocessa o mesmo documento com uma nova instrução, sem procurar o arquivo de novo.
 
+### Atualizações automáticas
+
+O app confere as *Releases* deste repositório ao abrir. Havendo versão nova, aparece uma faixa **"⬆ Atualizar para a versão X"** — um clique baixa, substitui o programa e reabre sozinho. Dá para desligar o aviso ou procurar atualização manualmente em *Configurações*.
+
+### Onde salvar os arquivos gerados
+
+Três modos em *Configurações*: **mesma** pasta do original (padrão), uma pasta **fixa** escolhida, ou **perguntar** a cada arquivo.
+
+Além disso, dá para pedir em português no campo de instruções, valendo só para aquele arquivo:
+
+- *"salvar na área de trabalho"*
+- *"salvar em Documentos"* / *"salvar na pasta Relatórios 2026"*
+- *"salvar em C:\Users\...\Casos"*
+
+O pedido de pasta é interpretado pelo app e **removido** antes de o texto ir para a IA — o resto da instrução continua valendo: *"salvar na área de trabalho e manter o terceiro parágrafo"* salva no Desktop e passa "manter o terceiro parágrafo" para a revisão.
+
 ### Citações de outros documentos (itálico)
 
 Trechos **copiados de outro documento** — o histórico de outro serviço, um parecer, um despacho — costumam vir colados em itálico. O app detecta esses blocos (itálico, fora de lista, em sequência de três parágrafos ou mais) e os **preserva exatamente como estão**: não vão para a IA, não são reformatados e não entram no diff.
@@ -93,6 +109,8 @@ git tag v1.0.0 && git push --tags
 | `app/archive.py` | índice pesquisável (SQLite FTS5) com busca por radical e sem acento |
 | `app/ai_client.py` | chamadas à OpenRouter (padrão: `google/gemini-3.7-flash`) com validação de formato, termos protegidos e custo por request |
 | `app/worker.py` | orquestração em thread + PDF opcional via Word (docx2pdf) |
+| `app/outdir.py` | resolve a pasta de saída (config + pedido em português nas instruções) |
+| `app/updater.py` | verifica Releases, baixa e substitui o executável |
 | `app/main.py` / `settings.py` | interface (widget/janela), onboarding e preferências |
 
 Salvaguardas: a IA só vê texto (nunca o arquivo); números alterados são revertidos automaticamente; e uma autoverificação confere que **aceitar todas as revisões do diff reproduz exatamente a versão final** antes de salvar.

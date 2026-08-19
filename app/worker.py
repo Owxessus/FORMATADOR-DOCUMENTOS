@@ -21,8 +21,10 @@ class Job(threading.Thread):
 
     def __init__(self, path: str, cfg: dict, extra: str,
                  on_progress, on_done, on_error, want_pdf: bool = False,
-                 perfil: str = "Detectar automaticamente"):
+                 perfil: str = "Detectar automaticamente",
+                 out_dir: str | None = None):
         super().__init__(daemon=True)
+        self.out_dir_override = out_dir
         self.want_pdf = want_pdf
         self.perfil = perfil
         self.path = path
@@ -45,7 +47,7 @@ class Job(threading.Thread):
                                         protected=protected)
 
             ext = os.path.splitext(self.path)[1].lower()
-            out_dir = self.cfg.get("out_dir") or None
+            out_dir = self.out_dir_override or None
             if ext == ".docx":
                 mem = memory.load()
                 paras = docx_engine.extract(self.path).editable_texts

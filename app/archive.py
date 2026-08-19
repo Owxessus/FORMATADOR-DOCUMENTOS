@@ -3,7 +3,7 @@
 
 Cada documento processado entra num índice local (SQLite). Também é
 possível indexar pastas antigas de uma vez. A busca é por palavra:
-"Pamela convulsão", "rifa", "CAPS Vila Matilde"…
+"convulsão", "rifa", "medida protetiva", "CAPS"…
 
 O índice fica só no computador da usuária, na pasta de configuração.
 """

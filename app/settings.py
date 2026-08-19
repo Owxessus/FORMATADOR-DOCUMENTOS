@@ -13,7 +13,9 @@ DEFAULTS = {
     "model": "google/gemini-3.7-flash",
     "always_on_top": True,
     "generate_pdf": "perguntar",   # sempre | nunca | perguntar
-    "out_dir": "",                 # vazio = mesma pasta do arquivo
+    "out_mode": "mesma",           # mesma | fixa | perguntar
+    "out_dir": "",                 # usado quando out_mode == "fixa"
+    "check_updates": True,
     "onboarded": False,
     "history": [],                 # [{file, when, cost, changed}]
     "theme": "light",              # light | dark
@@ -21,7 +23,7 @@ DEFAULTS = {
     "protected_terms": [
         "CAE", "CREAS", "CRAS", "CAPS", "SAMU", "UPA", "UBS", "AMA", "AME",
         "GCM", "INSS", "AVCB", "EPIs", "OSC", "APOIO", "CID", "CRM", "CREMESP",
-        "CRP", "CRESS", "SUAS", "PAEFI", "LGBTQIAPN+", "Penha",
+        "CRP", "CRESS", "SUAS", "PAEFI", "LGBTQIAPN+",
     ],
 }
 
