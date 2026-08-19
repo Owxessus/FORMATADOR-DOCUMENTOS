@@ -56,11 +56,11 @@ O documento sai com toda a formatação, timbre e assinatura do modelo preservad
 
 ### Posição e tamanho na tela
 
-O widget é uma janela normal: **arraste pela barra de título** para onde quiser e **redimensione pelas bordas** (mínimo 300×250). O app **lembra onde ficou e de que tamanho** — e guarda isso separadamente para cada modo, então o widget pode morar pequeno num canto enquanto o modo janela abre grande e centralizado. Se o monitor onde ela estava for desconectado, a posição inválida é descartada e a janela volta ao padrão.
+O widget é uma janela normal: **arraste pela barra de título** para onde quiser e **redimensione pelas bordas** (mínimo 330×480). O app **lembra onde ficou e de que tamanho** — e guarda isso separadamente para cada modo, então o widget pode morar pequeno num canto enquanto o modo janela abre grande e centralizado. Se o monitor onde ela estava for desconectado, a posição inválida é descartada e a janela volta ao padrão.
 
 ### Andamento e resumo
 
-No modo janela há um painel **Andamento** que mostra cada etapa em tempo real (lendo, conferindo datas, corrigindo, gerando, verificando) e, ao final, um **resumo em texto**: perfil aplicado, parágrafos corrigidos, custo, resultado da conferência, avisos e os arquivos gerados. O botão *Copiar resumo* leva tudo para a área de transferência.
+O painel **Andamento** aparece nos dois modos — inclusive no widget compacto — que mostra cada etapa em tempo real (lendo, conferindo datas, corrigindo, gerando, verificando) e, ao final, um **resumo em texto**: perfil aplicado, parágrafos corrigidos, custo, resultado da conferência, avisos e os arquivos gerados. O botão *Copiar resumo* leva tudo para a área de transferência.
 
 ### Comandos pelo campo de instruções
 

@@ -26,7 +26,7 @@ import version
 import worker
 
 APP_TITLE = f"Formatador de Relatórios  v{version.VERSION}"
-WIDGET_SIZE = "360x330"
+WIDGET_SIZE = "380x580"
 FULL_SIZE = "820x560"
 
 ACCENT = "#2B6CB0"
@@ -153,8 +153,14 @@ class App(TkinterDnD.Tk):
         return -larg < x < larg * 2 and -alt < y < alt * 2
 
     def _apply_window_mode(self, initial=False):
-        self.minsize(300, 250) if self.widget_mode else self.minsize(620, 430)
+        self.minsize(330, 480) if self.widget_mode else self.minsize(620, 430)
         salva = self.cfg.get(self._chave_geom(), "")
+        if self.widget_mode and salva:
+            # versões antigas guardaram uma janelinha curta demais para
+            # mostrar o painel de andamento: cresce para baixo, no lugar
+            m = re.match(r"(\d+)x(\d+)(\+-?\d+\+-?\d+)$", salva)
+            if m and int(m.group(2)) < 520:
+                salva = f"{max(int(m.group(1)), 380)}x580{m.group(3)}"
         if self._geometria_valida(salva):
             self.geometry(salva)
         else:
@@ -365,18 +371,20 @@ class App(TkinterDnD.Tk):
                           dynamic_resizing=False).pack(fill="x", pady=(0, 6))
 
         # área de drop
-        self.drop = ctk.CTkFrame(left, corner_radius=16,
-                                 border_width=2, border_color=ACCENT)
-        self.drop.pack(fill="both", expand=True)
+        self.drop = ctk.CTkFrame(left, corner_radius=16, border_width=2,
+                                 border_color=ACCENT,
+                                 height=165 if self.widget_mode else 200)
+        self.drop.pack(fill="x", expand=False)
+        self.drop.pack_propagate(False)
         self.drop_label = ctk.CTkLabel(
             self.drop, justify="center",
             font=ctk.CTkFont(size=15, weight="bold"),
-            text="📄\n\nSolte o relatório aqui\n(.docx ou .xlsx)")
-        self.drop_label.place(relx=0.5, rely=0.42, anchor="center")
+            text="📄\nSolte o relatório aqui\n(.docx ou .xlsx)")
+        self.drop_label.place(relx=0.5, rely=0.40, anchor="center")
         ctk.CTkButton(self.drop, text="ou clique para escolher",
                       fg_color="transparent", text_color=ACCENT,
                       hover=False, command=self._pick_file).place(
-            relx=0.5, rely=0.72, anchor="center")
+            relx=0.5, rely=0.80, anchor="center")
 
         self.drop.drop_target_register(DND_FILES)
         self.drop.dnd_bind("<<Drop>>", self._on_drop)
@@ -392,25 +400,23 @@ class App(TkinterDnD.Tk):
         self.status = ctk.CTkLabel(left, text="", wraplength=320,
                                    font=ctk.CTkFont(size=12))
         self.status.pack(fill="x")
-        if not self.widget_mode:
-            ctk.CTkLabel(left, text="Andamento", anchor="w",
-                         font=ctk.CTkFont(size=12, weight="bold")).pack(
-                fill="x", pady=(8, 2))
-            self.log_box = ctk.CTkTextbox(left, height=150,
-                                          font=ctk.CTkFont(size=11))
-            self.log_box.pack(fill="both", expand=False)
-            self.log_box.insert("1.0", "Solte um arquivo para começar.\n")
-            self.log_box.configure(state="disabled")
-            linha_cp = ctk.CTkFrame(left, fg_color="transparent")
-            linha_cp.pack(fill="x", pady=(4, 0))
-            ctk.CTkButton(linha_cp, text="📋 Copiar resumo", height=26,
-                          fg_color="gray50", command=self._copiar_resumo).pack(
-                side="left", expand=True, fill="x", padx=(0, 3))
-            ctk.CTkButton(linha_cp, text="🧹 Limpar", height=26, width=70,
-                          fg_color="gray50", command=self._limpar_log).pack(
-                side="left")
-        else:
-            self.log_box = None
+        ctk.CTkLabel(left, text="Andamento", anchor="w",
+                     font=ctk.CTkFont(size=12, weight="bold")).pack(
+            fill="x", pady=(8, 2))
+        self.log_box = ctk.CTkTextbox(
+            left, height=110 if self.widget_mode else 150,
+            font=ctk.CTkFont(size=11))
+        self.log_box.pack(fill="both", expand=True)
+        self.log_box.insert("1.0", "Solte um arquivo para começar.\n")
+        self.log_box.configure(state="disabled")
+        linha_cp = ctk.CTkFrame(left, fg_color="transparent")
+        linha_cp.pack(fill="x", pady=(4, 0))
+        ctk.CTkButton(linha_cp, text="📋 Copiar resumo", height=26,
+                      fg_color="gray50", command=self._copiar_resumo).pack(
+            side="left", expand=True, fill="x", padx=(0, 3))
+        ctk.CTkButton(linha_cp, text="🧹", height=26, width=40,
+                      fg_color="gray50", command=self._limpar_log).pack(
+            side="left")
 
         self.open_btn = ctk.CTkButton(left, text="📂  Abrir pasta",
                                       fg_color=OK_COLOR, height=34,
@@ -984,7 +990,7 @@ class App(TkinterDnD.Tk):
         self.redo_btn.pack_forget()
         restantes = f"  (+{len(self.queue)} na fila)" if self.queue else ""
         self.drop_label.configure(
-            text=f"⏳\n\nProcessando…{restantes}\n{os.path.basename(path)[:34]}")
+            text=f"⏳ Processando…{restantes}\n{os.path.basename(path)[:30]}")
         self.progress.pack(fill="x", pady=(4, 2))
         self.progress.start()
         destino = os.path.basename(pasta) if pasta else "mesma pasta do arquivo"
@@ -1042,7 +1048,7 @@ class App(TkinterDnD.Tk):
         self.progress.stop()
         self.progress.pack_forget()
         self.drop_label.configure(
-            text="✅\n\nPronto! Solte outro arquivo\nquando quiser")
+            text="✅\nPronto! Solte outro arquivo")
         extra = f"  ·  US$ {res['cost']:.3f}" if res.get("cost") else ""
         warn = f"\n⚠ {len(res['warnings'])} aviso(s)" \
             if res.get("warnings") else ""
@@ -1081,7 +1087,7 @@ class App(TkinterDnD.Tk):
         self.progress.stop()
         self.progress.pack_forget()
         self.drop_label.configure(
-            text="📄\n\nSolte o relatório aqui\n(.docx ou .xlsx)")
+            text="📄\nSolte o relatório aqui\n(.docx ou .xlsx)")
         self._set_status(f"✗ {err}", ERR_COLOR)
         if self.queue:
             self.after(1200, self._next_in_queue)
