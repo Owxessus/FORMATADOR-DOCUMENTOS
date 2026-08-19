@@ -8,6 +8,7 @@ import threading
 
 import ai_client
 import archive
+import comandos
 import checks
 import docx_engine
 import memory
@@ -39,12 +40,14 @@ class Job(threading.Thread):
             client = ai_client.OpenRouterClient(
                 self.cfg["api_key"], model=self.cfg["model"])
 
+            self.extra, avisos_cmd = comandos.processar(self.extra, self.cfg)
+            mem_fatos = memory.load().get("fatos", [])
             protected = self.cfg.get("protected_terms") or []
 
             def corrector(texts, kinds, extra):
                 return client.corrector(texts, kinds, extra,
                                         progress=self.on_progress,
-                                        protected=protected)
+                                        protected=protected, fatos=mem_fatos)
 
             ext = os.path.splitext(self.path)[1].lower()
             out_dir = self.out_dir_override or None
@@ -81,6 +84,7 @@ class Job(threading.Thread):
                 raise ValueError(
                     "Formato não suportado. Use arquivos .docx ou .xlsx.")
 
+            res["warnings"] = avisos_cmd + list(res.get("warnings") or [])
             res["cost"] = client.total_cost
             res["pdf"] = None
             if ext == ".docx" and self.want_pdf:

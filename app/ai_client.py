@@ -124,7 +124,8 @@ class OpenRouterClient:
 
     def _correct_batch(self, batch: list[tuple[int, str]],
                        extra: str,
-                       protected: list[str] | None = None) -> dict[int, str]:
+                       protected: list[str] | None = None,
+                       fatos: list[str] | None = None) -> dict[int, str]:
         user = {"paragrafos": [{"i": i, "texto": t} for i, t in batch]}
         msgs = [{"role": "system", "content": SYSTEM_PROMPT}]
         if protected:
@@ -132,6 +133,12 @@ class OpenRouterClient:
                          "Termos que devem permanecer EXATAMENTE como estão "
                          "(nunca corrigir, acentuar ou expandir): "
                          + ", ".join(protected)})
+        if fatos:
+            msgs.append({"role": "system", "content":
+                         "Contexto institucional (apenas para entender o "
+                         "texto e não descaracterizar nomes e dados; é "
+                         "PROIBIDO acrescentar qualquer uma destas "
+                         "informações ao documento): " + "; ".join(fatos)})
         if extra.strip():
             msgs.append({"role": "system",
                          "content": "Instruções adicionais do usuário "
@@ -157,7 +164,8 @@ class OpenRouterClient:
     def corrector(self, texts: list[str], kinds: list[str],
                   extra_instructions: str = "",
                   progress=lambda msg: None,
-                  protected: list[str] | None = None) -> list[str]:
+                  protected: list[str] | None = None,
+                  fatos: list[str] | None = None) -> list[str]:
         """Assinatura compatível com docx_engine.process()."""
         indexed = list(enumerate(texts))
         batches, cur, size = [], [], 0
@@ -173,5 +181,6 @@ class OpenRouterClient:
         result: dict[int, str] = {}
         for n, b in enumerate(batches, 1):
             progress(f"Corrigindo texto com IA… (parte {n}/{len(batches)})")
-            result.update(self._correct_batch(b, extra_instructions, protected))
+            result.update(self._correct_batch(b, extra_instructions,
+                                              protected, fatos))
         return [result[i] for i in range(len(texts))]

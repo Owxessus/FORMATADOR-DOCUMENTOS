@@ -39,7 +39,7 @@ PERFIS_PADRAO = {
         "titulos": ["relatório"]},
 }
 
-DEFAULTS = {"blocos": {}, "perfis": PERFIS_PADRAO}
+DEFAULTS = {"blocos": {}, "perfis": PERFIS_PADRAO, "fatos": []}
 
 
 def _path() -> str:
@@ -48,11 +48,13 @@ def _path() -> str:
 
 def load() -> dict:
     d = {"blocos": dict(DEFAULTS["blocos"]),
-         "perfis": {k: dict(v) for k, v in PERFIS_PADRAO.items()}}
+         "perfis": {k: dict(v) for k, v in PERFIS_PADRAO.items()},
+         "fatos": []}
     try:
         with open(_path(), encoding="utf-8") as f:
             saved = json.load(f)
         d["blocos"].update(saved.get("blocos", {}))
+        d["fatos"] = list(saved.get("fatos", []))
         for nome, perfil in (saved.get("perfis") or {}).items():
             base = dict(PERFIS_PADRAO.get(nome, {
                 "assinatura": [], "instrucoes": "", "blocos": [],
@@ -78,3 +80,12 @@ def detectar_perfil(paragraphs: list[str], mem: dict) -> str:
             if t and t in cabeca and len(t) > tamanho:
                 melhor, tamanho = nome, len(t)
     return melhor
+
+
+def adicionar_fato(texto: str) -> None:
+    """Guarda um fato institucional na memória (usado como contexto)."""
+    mem = load()
+    texto = texto.strip()
+    if texto and texto not in mem["fatos"]:
+        mem["fatos"].append(texto)
+        save(mem)

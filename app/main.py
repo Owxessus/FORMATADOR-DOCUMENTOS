@@ -16,6 +16,7 @@ from tkinterdnd2 import DND_FILES, TkinterDnD
 
 import ai_client
 import archive
+import forms
 import memory
 import outdir
 import settings
@@ -296,6 +297,26 @@ class App(TkinterDnD.Tk):
         self.status = ctk.CTkLabel(left, text="", wraplength=320,
                                    font=ctk.CTkFont(size=12))
         self.status.pack(fill="x")
+        if not self.widget_mode:
+            ctk.CTkLabel(left, text="Andamento", anchor="w",
+                         font=ctk.CTkFont(size=12, weight="bold")).pack(
+                fill="x", pady=(8, 2))
+            self.log_box = ctk.CTkTextbox(left, height=150,
+                                          font=ctk.CTkFont(size=11))
+            self.log_box.pack(fill="both", expand=False)
+            self.log_box.insert("1.0", "Solte um arquivo para começar.\n")
+            self.log_box.configure(state="disabled")
+            linha_cp = ctk.CTkFrame(left, fg_color="transparent")
+            linha_cp.pack(fill="x", pady=(4, 0))
+            ctk.CTkButton(linha_cp, text="📋 Copiar resumo", height=26,
+                          fg_color="gray50", command=self._copiar_resumo).pack(
+                side="left", expand=True, fill="x", padx=(0, 3))
+            ctk.CTkButton(linha_cp, text="🧹 Limpar", height=26, width=70,
+                          fg_color="gray50", command=self._limpar_log).pack(
+                side="left")
+        else:
+            self.log_box = None
+
         self.open_btn = ctk.CTkButton(left, text="📂  Abrir pasta",
                                       fg_color=OK_COLOR, height=34,
                                       command=lambda: None)
@@ -309,6 +330,7 @@ class App(TkinterDnD.Tk):
             right.pack(side="right", fill="both", padx=(12, 0))
             tabs = ctk.CTkTabview(right, width=350)
             tabs.pack(fill="both", expand=True, padx=6, pady=6)
+            self._build_forms_tab(tabs.add("Formulários"))
             self._build_search_tab(tabs.add("Busca"))
             self._build_history_tab(tabs.add("Histórico"))
             self._build_memory_tab(tabs.add("Memória"))
@@ -331,6 +353,158 @@ class App(TkinterDnD.Tk):
                          text=(f'{h["when"]}  ·  {h["changed"]} correções  ·  '
                                f'US$ {h["cost"]:.3f}')).pack(
                 fill="x", padx=10, pady=(0, 6))
+
+    # --------------------------------------------------- formulários
+
+    def _build_forms_tab(self, tab):
+        topo = ctk.CTkFrame(tab, fg_color="transparent")
+        topo.pack(fill="x", pady=(2, 4))
+        modelos = forms.listar() or ["(nenhum modelo ainda)"]
+        self.modelo_var = ctk.StringVar(value=modelos[0])
+        sel = ctk.CTkOptionMenu(topo, values=modelos, variable=self.modelo_var,
+                                dynamic_resizing=False, width=200)
+        sel.pack(side="left", fill="x", expand=True)
+
+        campos_frame = ctk.CTkScrollableFrame(tab, fg_color="transparent",
+                                              height=200)
+        campos_frame.pack(fill="both", expand=True)
+        self.campos_widgets = {}
+        status = ctk.CTkLabel(tab, text="", wraplength=310, text_color="gray",
+                              font=ctk.CTkFont(size=11))
+
+        def montar_campos(_=None):
+            for w in campos_frame.winfo_children():
+                w.destroy()
+            self.campos_widgets.clear()
+            nome = self.modelo_var.get()
+            if not nome.endswith(".docx"):
+                ctk.CTkLabel(campos_frame, wraplength=300, text_color="gray",
+                             justify="left",
+                             text=("Nenhum modelo importado ainda.\n\n"
+                                   "Um modelo e um documento do servico "
+                                   "(com timbre e assinatura) onde os lugares "
+                                   "a preencher estao marcados assim:\n\n"
+                                   "Usuario(a): {{nome}}\n"
+                                   "Encaminhado para: {{destino}}\n\n"
+                                   "Clique em Importar.")).pack(pady=10, padx=6)
+                return
+            try:
+                lista = forms.campos(nome)
+            except Exception as e:
+                status.configure(text=f"x {e}", text_color=ERR_COLOR)
+                return
+            if not lista:
+                ctk.CTkLabel(campos_frame, wraplength=300,
+                             text_color=ERR_COLOR,
+                             text="Este modelo nao tem marcadores.").pack(pady=10)
+                return
+            for c in lista:
+                ctk.CTkLabel(campos_frame,
+                             text=c.replace("_", " ").capitalize(), anchor="w",
+                             font=ctk.CTkFont(size=11, weight="bold")).pack(
+                    fill="x", pady=(6, 1))
+                cx = ctk.CTkTextbox(campos_frame, height=46,
+                                    font=ctk.CTkFont(size=11))
+                cx.pack(fill="x")
+                self.campos_widgets[c] = cx
+
+        sel.configure(command=montar_campos)
+        montar_campos()
+
+        def importar():
+            from tkinter import filedialog
+            f = filedialog.askopenfilename(title="Escolha o modelo (.docx)",
+                                           filetypes=[("Word", "*.docx")])
+            if not f:
+                return
+            nome = forms.importar(f)
+            sel.configure(values=forms.listar())
+            self.modelo_var.set(nome)
+            montar_campos()
+            status.configure(text=f"Modelo {nome} importado.",
+                             text_color=OK_COLOR)
+
+        ctk.CTkButton(topo, text="Importar...", width=88, height=28,
+                      fg_color="gray50", command=importar).pack(side="left",
+                                                                padx=(6, 0))
+
+        ctk.CTkLabel(tab, anchor="w",
+                     font=ctk.CTkFont(size=11, weight="bold"),
+                     text="Ou cole anotacoes e deixe a IA distribuir:").pack(
+            fill="x", pady=(8, 2))
+        anotacoes = ctk.CTkTextbox(tab, height=66, font=ctk.CTkFont(size=11))
+        anotacoes.pack(fill="x")
+
+        def preencher_ia():
+            texto = anotacoes.get("1.0", "end").strip()
+            if not texto or not self.campos_widgets:
+                status.configure(text="Escreva as anotacoes primeiro.",
+                                 text_color=ERR_COLOR)
+                return
+            if not self.cfg.get("api_key"):
+                status.configure(text="Configure a chave OpenRouter.",
+                                 text_color=ERR_COLOR)
+                return
+            status.configure(text="Distribuindo nos campos...",
+                             text_color="gray")
+
+            def tarefa():
+                try:
+                    cli = ai_client.OpenRouterClient(self.cfg["api_key"],
+                                                     model=self.cfg["model"])
+                    vals = forms.distribuir_com_ia(
+                        cli, list(self.campos_widgets), texto)
+
+                    def aplicar():
+                        for c, w in self.campos_widgets.items():
+                            w.delete("1.0", "end")
+                            w.insert("1.0", vals.get(c, ""))
+                        status.configure(
+                            text=f"Campos preenchidos - US$ "
+                                 f"{cli.total_cost:.4f}. Confira antes de gerar.",
+                            text_color=OK_COLOR)
+                    self.after(0, aplicar)
+                except Exception as e:
+                    msg = str(e)
+                    self.after(0, lambda: status.configure(
+                        text=f"x {msg}", text_color=ERR_COLOR))
+            threading.Thread(target=tarefa, daemon=True).start()
+
+        linha = ctk.CTkFrame(tab, fg_color="transparent")
+        linha.pack(fill="x", pady=6)
+        ctk.CTkButton(linha, text="Preencher com IA", height=30,
+                      fg_color="gray50", command=preencher_ia).pack(
+            side="left", expand=True, fill="x", padx=(0, 4))
+
+        def gerar():
+            nome = self.modelo_var.get()
+            if not nome.endswith(".docx") or not self.campos_widgets:
+                return
+            valores = {c: w.get("1.0", "end").strip()
+                       for c, w in self.campos_widgets.items()}
+            from tkinter import filedialog
+            base = os.path.splitext(nome)[0]
+            rotulo = valores.get("nome") or valores.get("usuario") or ""
+            sugerido = (f"{base} - {rotulo}.docx" if rotulo
+                        else f"{base} preenchido.docx")
+            sugerido = "".join(ch for ch in sugerido if ch not in '\\/:*?"<>|')
+            destino = filedialog.asksaveasfilename(
+                title="Salvar formulario", defaultextension=".docx",
+                initialfile=sugerido, filetypes=[("Word", "*.docx")])
+            if not destino:
+                return
+            try:
+                forms.preencher(nome, valores, destino)
+                status.configure(text=f"Gerado: {os.path.basename(destino)}",
+                                 text_color=OK_COLOR)
+                open_folder(destino)
+            except Exception as e:
+                status.configure(text=f"x {e}", text_color=ERR_COLOR)
+
+        ctk.CTkButton(linha, text="Gerar documento", height=30,
+                      fg_color=ACCENT, hover_color=ACCENT_HOVER,
+                      command=gerar).pack(side="left", expand=True, fill="x")
+        status.pack(fill="x")
 
     # --------------------------------------------------------- busca
 
@@ -456,6 +630,35 @@ class App(TkinterDnD.Tk):
         ctk.CTkButton(linha, text="Apagar", fg_color="gray50", width=80,
                       command=apagar_bloco).pack(side="left")
         aviso.pack()
+
+        # ---- fatos institucionais ----
+        ctk.CTkLabel(frame, anchor="w", text="Fatos institucionais",
+                     font=ctk.CTkFont(size=12, weight="bold")).pack(
+            fill="x", pady=(14, 2))
+        ctk.CTkLabel(frame, anchor="w", wraplength=310, text_color="gray",
+                     font=ctk.CTkFont(size=11),
+                     text=("Um por linha. Servem de contexto para a IA "
+                           "entender o texto — ela nunca acrescenta essas "
+                           "informações ao documento. Você também pode "
+                           "escrever “lembrar: ...” no campo de instruções.")
+                     ).pack(fill="x")
+        fatos_box = ctk.CTkTextbox(frame, height=90)
+        fatos_box.pack(fill="x", pady=(2, 0))
+        fatos_box.insert("1.0", "\n".join(mem.get("fatos", [])))
+
+        fav = ctk.CTkLabel(frame, text="", text_color=OK_COLOR)
+
+        def salvar_fatos():
+            mem["fatos"] = [l.strip() for l in
+                            fatos_box.get("1.0", "end").splitlines() if l.strip()]
+            memory.save(mem)
+            fav.configure(text="✓ Fatos salvos")
+            self.after(2000, lambda: fav.configure(text=""))
+
+        ctk.CTkButton(frame, text="Salvar fatos", fg_color=ACCENT,
+                      hover_color=ACCENT_HOVER, command=salvar_fatos).pack(
+            fill="x", pady=6)
+        fav.pack()
 
         # ---- perfis ----
         ctk.CTkLabel(frame, anchor="w", text="Perfis de documento",
@@ -707,6 +910,37 @@ class App(TkinterDnD.Tk):
 
     def _set_status(self, msg: str, color: str = "gray"):
         self.status.configure(text=msg, text_color=color)
+        self._log(msg)
+
+    def _log(self, msg: str):
+        box = getattr(self, "log_box", None)
+        if not box:
+            self.log_linhas = getattr(self, "log_linhas", [])
+            self.log_linhas.append(msg)
+            return
+        box.configure(state="normal")
+        box.insert("end", msg + "\n")
+        box.see("end")
+        box.configure(state="disabled")
+
+    def _texto_log(self) -> str:
+        box = getattr(self, "log_box", None)
+        if box:
+            return box.get("1.0", "end").strip()
+        return "\n".join(getattr(self, "log_linhas", []))
+
+    def _copiar_resumo(self):
+        self.clipboard_clear()
+        self.clipboard_append(self._texto_log())
+        self._log("(resumo copiado para a área de transferência)")
+
+    def _limpar_log(self):
+        box = getattr(self, "log_box", None)
+        if box:
+            box.configure(state="normal")
+            box.delete("1.0", "end")
+            box.configure(state="disabled")
+        self.log_linhas = []
 
     def _done(self, res: dict):
         self.busy = False
@@ -715,12 +949,32 @@ class App(TkinterDnD.Tk):
         self.drop_label.configure(
             text="✅\n\nPronto! Solte outro arquivo\nquando quiser")
         extra = f"  ·  US$ {res['cost']:.3f}" if res.get("cost") else ""
-        warn = f"\n⚠ {len(res['warnings'])} aviso(s) — veja o diff." \
+        warn = f"\n⚠ {len(res['warnings'])} aviso(s)" \
             if res.get("warnings") else ""
-        self._set_status(
-            f"✓ {res['changed']} correções em {res['paragraphs']} "
-            f"parágrafos{extra}{warn}",
-            OK_COLOR if res.get("verified") else ERR_COLOR)
+        self.status.configure(
+            text=f"✓ {res['changed']} correções em {res['paragraphs']} "
+                 f"parágrafos{extra}{warn}",
+            text_color=OK_COLOR if res.get("verified") else ERR_COLOR)
+
+        # resumo completo no painel
+        self._log("")
+        self._log("═══ RESUMO ═══")
+        if res.get("perfil"):
+            self._log(f"Perfil aplicado: {res['perfil']}")
+        self._log(f"Parágrafos: {res['paragraphs']}  |  corrigidos: "
+                  f"{res['changed']}")
+        if res.get("cost"):
+            self._log(f"Custo desta revisão: US$ {res['cost']:.4f}")
+        self._log(f"Conferência final: "
+                  f"{'OK' if res.get('verified') else 'ATENÇÃO — revise o diff'}")
+        for w in res.get("warnings") or []:
+            self._log(f"  • {w}")
+        self._log("Arquivos gerados:")
+        self._log(f"  {os.path.basename(res['final'])}")
+        self._log(f"  {os.path.basename(res['redline'])}")
+        if res.get("pdf"):
+            self._log(f"  {os.path.basename(res['pdf'])}")
+        self._log(f"Pasta: {os.path.dirname(res['final'])}")
         self.open_btn.configure(command=lambda: open_folder(res["final"]))
         self.open_btn.pack(fill="x", pady=(4, 0))
         self.redo_btn.pack(fill="x", pady=(4, 0))

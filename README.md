@@ -37,6 +37,39 @@ O próprio app guia esse processo no primeiro uso. Em resumo:
 - **Vários arquivos de uma vez**: solte quantos quiser — eles entram numa fila e são processados em sequência;
 - Ao final, o botão **📂 Abrir pasta** leva direto aos arquivos gerados, e **🔁 Refazer com a instrução acima** reprocessa o mesmo documento com uma nova instrução, sem procurar o arquivo de novo.
 
+## 📋 Aba Formulários
+
+Além de formatar relatórios prontos, o app **preenche modelos**. Um modelo é um documento do serviço — com timbre e assinatura — onde os lugares a preencher estão marcados com chaves duplas:
+
+```
+Usuário(a): {{nome}}
+Encaminhado para: {{destino}}
+Motivo: {{motivo}}
+```
+
+Importe o modelo uma vez (botão *Importar…*) e o app monta um campo para cada marcador. Daí há dois caminhos:
+
+- **preencher campo a campo**, ou
+- **colar as anotações soltas** ("Caroliny, 27 anos, encaminhar pro CAPS Vila Matilde por causa do acompanhamento em saúde mental, tem medida protetiva") e clicar em **Preencher com IA** — ela distribui a informação nos campos certos, usando *somente* o que está nas anotações, sem inventar nada. Os campos ficam editáveis para conferência antes de gerar.
+
+O documento sai com toda a formatação, timbre e assinatura do modelo preservados.
+
+### Andamento e resumo
+
+No modo janela há um painel **Andamento** que mostra cada etapa em tempo real (lendo, conferindo datas, corrigindo, gerando, verificando) e, ao final, um **resumo em texto**: perfil aplicado, parágrafos corrigidos, custo, resultado da conferência, avisos e os arquivos gerados. O botão *Copiar resumo* leva tudo para a área de transferência.
+
+### Comandos pelo campo de instruções
+
+O campo aceita, além de pedidos sobre o texto, alguns comandos que o app executa e remove antes de enviar à IA:
+
+| O que escrever | O que acontece |
+|---|---|
+| `salvar na área de trabalho` | muda a pasta de saída só daquele arquivo |
+| `lembrar: a psicóloga do serviço é a Bianca` | guarda o fato na memória institucional |
+| `proteger: Nhocuné, Vila Reencontro` | acrescenta aos termos que a IA nunca corrige |
+
+Tudo pode vir junto de instruções normais: *"salvar na área de trabalho e manter o terceiro parágrafo"* faz as duas coisas.
+
 ### Atualizações automáticas
 
 O app confere as *Releases* deste repositório ao abrir. Havendo versão nova, aparece uma faixa **"⬆ Atualizar para a versão X"** — um clique baixa, substitui o programa e reabre sozinho. Dá para desligar o aviso ou procurar atualização manualmente em *Configurações*.
@@ -109,6 +142,8 @@ git tag v1.0.0 && git push --tags
 | `app/archive.py` | índice pesquisável (SQLite FTS5) com busca por radical e sem acento |
 | `app/ai_client.py` | chamadas à OpenRouter (padrão: `google/gemini-3.7-flash`) com validação de formato, termos protegidos e custo por request |
 | `app/worker.py` | orquestração em thread + PDF opcional via Word (docx2pdf) |
+| `app/forms.py` | modelos de formulário: detecta `{{campos}}`, preenche preservando o layout e distribui anotações com IA |
+| `app/comandos.py` | comandos escritos no campo de instruções (lembrar / proteger) |
 | `app/outdir.py` | resolve a pasta de saída (config + pedido em português nas instruções) |
 | `app/updater.py` | verifica Releases, baixa e substitui o executável |
 | `app/main.py` / `settings.py` | interface (widget/janela), onboarding e preferências |
