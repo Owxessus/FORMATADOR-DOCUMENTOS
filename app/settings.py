@@ -18,6 +18,7 @@ DEFAULTS = {
     "check_updates": True,
     "painel": "Formatador",   # Formatador | Assistente
     "web_busca": False,       # busca na web no assistente
+    "segunda_passada": True,  # revisar de novo os parágrafos suspeitos
     "geom_widget": "",             # "LxA+X+Y" lembrado entre sessões
     "geom_janela": "",
     "onboarded": False,

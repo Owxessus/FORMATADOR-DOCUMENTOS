@@ -51,7 +51,7 @@ valores, siglas, códigos (CID, CRM, RG, protocolos, placas) ou o sentido do tex
 exatamente um parágrafo de saída, na mesma posição.
 4. Pode reorganizar frases muito longas dentro do MESMO parágrafo para dar \
 clareza, sem mudar o conteúdo.
-5. Se um parágrafo já estiver correto, devolva-o exatamente igual.
+5. REVISE TODOS os parágrafos, um por um, até o último da lista. Não pule nenhum. Devolver um parágrafo igual só é aceitável se ele estiver realmente sem nenhum erro de ortografia, acentuação, pontuação ou concordância.
 6. Padronize horários no formato 07h00 e mantenha datas como estão.
 7. NUNCA altere siglas, nomes próprios, nomes de medicamentos, unidades de saúde, bairros ou termos técnicos — mesmo que pareçam grafados de forma estranha. Na dúvida, deixe como está.
 
@@ -189,7 +189,7 @@ class OpenRouterClient:
         for i, t in indexed:
             cur.append((i, t))
             size += len(t)
-            if len(cur) >= 20 or size > 7000:
+            if len(cur) >= 12 or size > 4500:
                 batches.append(cur)
                 cur, size = [], 0
         if cur:
@@ -202,3 +202,39 @@ class OpenRouterClient:
             result.update(self._correct_batch(b, extra_instructions,
                                               protected, fatos))
         return [result[i] for i in range(len(texts))]
+
+
+REVISAO_FOCADA = """Estes parágrafos foram devolvidos sem alteração numa revisão anterior, mas uma verificação automática encontrou pendências neles. Revise cada um com atenção, corrigindo ortografia, acentuação, pontuação e concordância — mantendo as mesmas regras invioláveis (não alterar fatos, datas, nomes, números, siglas nem o sentido).
+
+Se, depois de olhar com cuidado, o parágrafo estiver mesmo correto, devolva-o igual. Responda APENAS com o JSON {"paragrafos": [{"i": 0, "texto": "..."}]}, com os mesmos índices recebidos."""
+
+
+def revisar_focado(cliente: "OpenRouterClient", itens: list[dict],
+                   protegidos=None, progresso=lambda m: None) -> dict:
+    """Segunda passada só nos parágrafos suspeitos.
+
+    `itens`: [{"indice": 12, "texto": "...", "pendencias": ["acentuação: ..."]}]
+    Devolve {indice: texto_revisado}.
+    """
+    if not itens:
+        return {}
+    progresso(f"Segunda passada em {len(itens)} parágrafo(s) suspeito(s)…")
+    carga = {"paragrafos": [
+        {"i": it["indice"], "texto": it["texto"],
+         "pendencias_detectadas": it.get("pendencias", [])} for it in itens]}
+    msgs = [{"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "system", "content": REVISAO_FOCADA}]
+    if protegidos:
+        msgs.append({"role": "system", "content":
+                     "Termos que devem permanecer exatamente como estão: "
+                     + ", ".join(protegidos)})
+    msgs.append({"role": "user",
+                 "content": json.dumps(carga, ensure_ascii=False)})
+    for _ in range(2):
+        try:
+            itens_resp = cliente._parse_json(cliente._chat(msgs))
+            return {int(x["i"]): str(x["texto"]) for x in itens_resp}
+        except (ApiError, json.JSONDecodeError, KeyError, TypeError):
+            msgs.append({"role": "user",
+                         "content": "Responda SOMENTE o JSON pedido."})
+    return {}

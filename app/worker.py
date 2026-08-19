@@ -85,11 +85,18 @@ class Job(threading.Thread):
                     checks.check_dates,
                     lambda ps: checks.check_canonical(ps, blocos),
                 ]
+                def segunda(itens):
+                    return ai_client.revisar_focado(
+                        client, itens, protegidos=protected,
+                        progresso=self._checkpoint)
+
                 res = docx_engine.process(
                     self.path, corrector, out_dir=out_dir,
                     extra_instructions=extra, progress=self._checkpoint,
                     signature_labels=perfil.get("assinatura") or None,
-                    checkers=verificadores)
+                    checkers=verificadores,
+                    segunda_passada=segunda if self.cfg.get(
+                        "segunda_passada", True) else None)
                 res["perfil"] = nome_perfil
             elif ext == ".xlsx":
                 res = xlsx_engine.process(

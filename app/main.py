@@ -1124,6 +1124,17 @@ class App(TkinterDnD.Tk):
         ctk.CTkSegmentedButton(frame, values=["light", "dark"],
                                variable=theme_var).pack(fill="x")
 
+        seg_var = ctk.BooleanVar(value=self.cfg.get("segunda_passada", True))
+        ctk.CTkCheckBox(frame, variable=seg_var,
+                        text="Segunda passada nos parágrafos suspeitos").pack(
+            anchor="w", pady=(10, 0))
+        ctk.CTkLabel(frame, anchor="w", wraplength=310, text_color=GRAY_TXT,
+                     font=ctk.CTkFont(size=11),
+                     text=("Depois da revisão, o app procura por erros óbvios "
+                           "nos parágrafos que voltaram sem alteração e pede "
+                           "à IA que os revise de novo. Custa poucos centavos "
+                           "a mais e evita trechos esquecidos.")).pack(fill="x")
+
         upd_var = ctk.BooleanVar(value=self.cfg.get("check_updates", True))
         ctk.CTkCheckBox(frame, text="Avisar quando houver nova versão",
                         variable=upd_var).pack(anchor="w", pady=(10, 4))
@@ -1147,7 +1158,8 @@ class App(TkinterDnD.Tk):
                             protected_terms=lista,
                             out_mode=modo_var.get(),
                             out_dir=escolhida["path"],
-                            check_updates=bool(upd_var.get()))
+                            check_updates=bool(upd_var.get()),
+                            segunda_passada=bool(seg_var.get()))
             settings.save(self.cfg)
             if theme_var.get() != tema_antes:
                 ctk.set_appearance_mode(theme_var.get())
@@ -1380,6 +1392,11 @@ class App(TkinterDnD.Tk):
             self._log(f"Custo desta revisão: US$ {res['cost']:.4f}")
         self._log(f"Conferência final: "
                   f"{'OK' if res.get('verified') else 'ATENÇÃO — revise o diff'}")
+        rel = res.get("relatorio")
+        if rel:
+            import revisao
+            for linha in revisao.resumo_texto(rel):
+                self._log(linha)
         for w in res.get("warnings") or []:
             self._log(f"  • {w}")
         self._log("Arquivos gerados:")

@@ -1,4 +1,4 @@
 # -*- coding: utf-8 -*-
 """Versão do aplicativo — usada pelo verificador de atualizações."""
-VERSION = "1.8.0"
+VERSION = "1.9.0"
 REPO = "Owxessus/FORMATADOR-DOCUMENTOS"

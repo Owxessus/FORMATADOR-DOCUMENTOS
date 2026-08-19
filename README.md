@@ -111,6 +111,20 @@ Trechos **copiados de outro documento** — o histórico de outro serviço, um p
 
 Isso é proposital: alterar a grafia de um texto citado descaracteriza a fonte. Mesmo que o trecho destoe do resto do relatório — nomes em caixa baixa, siglas sem maiúscula, acentos faltando —, ele sai idêntico ao original. Um aviso informa quantos parágrafos foram preservados assim.
 
+### Completude da revisão e segunda passada
+
+Modelos de linguagem às vezes devolvem um parágrafo intacto no meio de um lote grande — não porque esteja correto, mas por "preguiça". O app trata isso em três camadas:
+
+1. **Lotes menores** (12 parágrafos) e instrução explícita de revisar todos até o último;
+2. **Detector local, sem IA**: nos parágrafos que voltaram sem nenhuma alteração, procura erros evidentes — acentuação faltando em palavras comuns (`nao`, `familia`, `saude`, `situacao`…), espaços duplicados, espaço antes de pontuação, minúscula depois de ponto, palavra repetida, falta de pontuação final, horário fora do padrão;
+3. **Segunda passada**: os parágrafos suspeitos voltam para a IA num pedido focado, com as pendências detectadas em anexo. São poucos, então custa centavos.
+
+Ao final, o resumo mostra a **completude** — *"Completude da revisão: 99% · corrigidos: 49 · sem alteração: 26 · citações preservadas: 0"* — e lista, com número do parágrafo e trecho, o que ficou sem revisão apesar de aparentar pendência, dizendo o motivo (devolvido sem alteração, correção revertida por alterar números, citação preservada).
+
+O detector foi calibrado contra relatórios reais: encontra 22 pendências no original de um relatório de 75 parágrafos e **zero falsos positivos** no mesmo texto já revisado à mão. Ainda assim, ele acha erros *evidentes* — não substitui a leitura final.
+
+Dá para desligar a segunda passada em *Configurações*.
+
 ### Conferência automática de datas
 
 Antes de enviar qualquer coisa à IA, o app confere as datas do documento **por código** e avisa (sem alterar nada) quando encontra:

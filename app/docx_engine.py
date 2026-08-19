@@ -37,6 +37,7 @@ class Paragraph:
     text: str          # texto original (limpo)
     corrected: str | None = None  # preenchido após a IA ("" = excluir)
     xml: str = ""      # XML original — usado quando kind == "quote"
+    motivo: str = ""   # por que ficou sem alteração (para o relatório)
 
 
 @dataclass
@@ -564,7 +565,7 @@ def process(docx_path: str, corrector, out_dir: str | None = None,
             extra_instructions: str = "",
             progress=lambda msg: None,
             signature_labels: list[str] | None = None,
-            checkers=()) -> dict:
+            checkers=(), segunda_passada=None) -> dict:
     """
     Pipeline completo. `corrector(texts, kinds, extra_instructions)` deve
     devolver a lista de textos corrigidos (mesmo tamanho; "" = excluir).
@@ -603,8 +604,26 @@ def process(docx_path: str, corrector, out_dir: str | None = None,
         if not numbers_preserved(p.text, corr):
             model.warnings.append(
                 f"Números alterados pela IA foram revertidos em: “{p.text[:60]}…”")
+            p.motivo = "correção revertida por alterar números"
             corr = p.text
         p.corrected = corr
+
+    # ---- segunda passada: só o que voltou intacto e parece ter pendência
+    import revisao
+    if segunda_passada:
+        rel = revisao.analisar(model.paragraphs)
+        if rel["suspeitos"]:
+            itens = [{"indice": s["indice"],
+                      "texto": model.paragraphs[s["indice"]].text,
+                      "pendencias": s["pendencias"]}
+                     for s in rel["suspeitos"]
+                     if not model.paragraphs[s["indice"]].motivo]
+            revisados = segunda_passada(itens) if itens else {}
+            for i, novo in revisados.items():
+                p = model.paragraphs[i]
+                if novo and novo != p.text and numbers_preserved(p.text, novo):
+                    p.corrected = novo
+                    p.motivo = "corrigido na segunda passada"
 
     base = os.path.splitext(os.path.basename(docx_path))[0]
     out_dir = out_dir or os.path.dirname(os.path.abspath(docx_path))
@@ -621,8 +640,12 @@ def process(docx_path: str, corrector, out_dir: str | None = None,
     if not ok:
         model.warnings.append("Autoverificação falhou: revise o diff antes de usar.")
 
+    import revisao as _rev
+    relatorio = _rev.analisar(model.paragraphs)
+
     return {"final": final_path, "redline": redline_path,
             "verified": ok, "warnings": model.warnings,
+            "relatorio": relatorio,
             "texto": " ".join(p.corrected or p.text for p in model.paragraphs),
             "paragraphs": len(model.paragraphs),
             "changed": sum(1 for p in model.paragraphs
