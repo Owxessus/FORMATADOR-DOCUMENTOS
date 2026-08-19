@@ -16,6 +16,8 @@ DEFAULTS = {
     "out_mode": "mesma",           # mesma | fixa | perguntar
     "out_dir": "",                 # usado quando out_mode == "fixa"
     "check_updates": True,
+    "geom_widget": "",             # "LxA+X+Y" lembrado entre sessões
+    "geom_janela": "",
     "onboarded": False,
     "history": [],                 # [{file, when, cost, changed}]
     "theme": "light",              # light | dark

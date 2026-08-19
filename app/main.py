@@ -7,6 +7,7 @@ soltar arquivo. Modo janela: histórico + configurações. Botão ⤢ alterna.
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 import sys
 import threading
@@ -52,7 +53,7 @@ class App(TkinterDnD.Tk):
         ctk.set_default_color_theme("blue")
 
         self.title(APP_TITLE)
-        self.minsize(340, 300)
+        self._geom_job = None
         self.widget_mode = True
         self.busy = False
         self.queue: list[str] = []
@@ -68,6 +69,9 @@ class App(TkinterDnD.Tk):
             self._show_onboarding()
         else:
             self._show_main()
+        self.bind("<Configure>", self._guardar_geometria)
+        self.protocol("WM_DELETE_WINDOW", self._ao_fechar)
+
         if self.cfg.get("check_updates", True):
             self._checar_atualizacao()
 
@@ -108,16 +112,87 @@ class App(TkinterDnD.Tk):
 
     # ------------------------------------------------------------- janela
 
+    # ------------------------------------------------ posição e tamanho
+
+    def _chave_geom(self) -> str:
+        return "geom_widget" if self.widget_mode else "geom_janela"
+
+    def _guardar_geometria(self, _evt=None):
+        """Lembra onde a janela está e de que tamanho ficou (com atraso,
+        para não gravar a cada pixel arrastado)."""
+        if self._geom_job:
+            self.after_cancel(self._geom_job)
+
+        def gravar():
+            self._geom_job = None
+            try:
+                if not self.winfo_exists():
+                    return
+                g = self.geometry()
+            except Exception:  # noqa: BLE001
+                return
+            if "x" in g and self.state() == "normal":
+                self.cfg[self._chave_geom()] = g
+                settings.save(self.cfg)
+        self._geom_job = self.after(800, gravar)
+
+    def _geometria_valida(self, g: str) -> bool:
+        """Descarta posições fora da tela (monitor desconectado, etc.)."""
+        m = re.match(r"(\d+)x(\d+)\+(-?\d+)\+(-?\d+)$", g or "")
+        if not m:
+            return False
+        w, h, x, y = (int(v) for v in m.groups())
+        if w < 200 or h < 160:
+            return False
+        larg, alt = self.winfo_screenwidth(), self.winfo_screenheight()
+        # tolera monitores à esquerda/acima (coordenadas negativas)
+        return -larg < x < larg * 2 and -alt < y < alt * 2
+
     def _apply_window_mode(self, initial=False):
-        self.geometry(WIDGET_SIZE if self.widget_mode else FULL_SIZE)
+        self.minsize(300, 250) if self.widget_mode else self.minsize(620, 430)
+        salva = self.cfg.get(self._chave_geom(), "")
+        if self._geometria_valida(salva):
+            self.geometry(salva)
+        else:
+            self.geometry(WIDGET_SIZE if self.widget_mode else FULL_SIZE)
         top = bool(self.cfg.get("always_on_top", True)) and self.widget_mode
         self.attributes("-topmost", top)
         if not initial:
             self._show_main()
 
     def _toggle_mode(self):
+        self._gravar_agora()
         self.widget_mode = not self.widget_mode
         self._apply_window_mode()
+
+    def _gravar_agora(self):
+        try:
+            g = self.geometry()
+            if "x" in g and self.state() == "normal":
+                self.cfg[self._chave_geom()] = g
+                settings.save(self.cfg)
+        except Exception:  # noqa: BLE001
+            pass
+
+    def _ao_fechar(self):
+        if self._geom_job:
+            try:
+                self.after_cancel(self._geom_job)
+            except Exception:  # noqa: BLE001
+                pass
+            self._geom_job = None
+        self._gravar_agora()
+        # cancela callbacks pendentes (o rastreador de DPI do CustomTkinter
+        # continua agendado e reclama depois que a janela some)
+        try:
+            for ident in self.tk.call("after", "info"):
+                try:
+                    self.after_cancel(ident)
+                except Exception:  # noqa: BLE001
+                    pass
+        except Exception:  # noqa: BLE001
+            pass
+        self.destroy()
 
     def _clear(self):
         for w in self.container.winfo_children():
