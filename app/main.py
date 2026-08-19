@@ -79,13 +79,17 @@ class App(TkinterDnD.Tk):
 
     def _checar_atualizacao(self, avisar_sem_novidade=False):
         def tarefa():
-            info = updater.checar()
-            self.after(0, self._resultado_atualizacao, info, avisar_sem_novidade)
+            try:
+                info = updater.checar()
+                self.after(0, self._resultado_atualizacao, info,
+                           avisar_sem_novidade)
+            except Exception:  # noqa: BLE001 — checagem é acessório
+                pass
         threading.Thread(target=tarefa, daemon=True).start()
 
     def _resultado_atualizacao(self, info, avisar):
         self.update_info = info
-        if info:
+        if info and self.cfg.get("onboarded"):
             self._show_main()
         elif avisar:
             self._set_status("Você já está na versão mais recente.", OK_COLOR)
@@ -247,10 +251,14 @@ class App(TkinterDnD.Tk):
             ctk.CTkButton(row, text="Testar conexão", height=40,
                           fg_color="gray50", command=self._test_key).pack(
                 side="left", padx=6)
+            def ir_para_3():
+                self._chave_digitada = self.key_entry.get().strip()
+                self._show_onboarding(3)
+
             self.key_next = ctk.CTkButton(
                 row, text="Continuar  →", height=40, state="disabled",
                 fg_color=ACCENT, hover_color=ACCENT_HOVER,
-                command=lambda: self._show_onboarding(3))
+                command=ir_para_3)
             self.key_next.pack(side="left", padx=6)
 
         else:
@@ -290,23 +298,35 @@ class App(TkinterDnD.Tk):
                 saldo = ""
                 if limit is not None and usage is not None:
                     saldo = f"  Saldo: US$ {max(limit - usage, 0):.2f}"
+                self._chave_digitada = key
                 self.after(0, lambda: (
                     self.key_status.configure(
                         text=f"✓ Chave válida!{saldo}", text_color=OK_COLOR),
                     self.key_next.configure(state="normal")))
             except Exception as e:  # noqa: BLE001
-                self.after(0, lambda: self.key_status.configure(
-                    text=f"✗ {e}", text_color=ERR_COLOR))
+                msg = str(e)
+                try:
+                    self.after(0, lambda: self.key_status.configure(
+                        text=f"✗ {msg}", text_color=ERR_COLOR))
+                except Exception:  # noqa: BLE001
+                    pass
 
         threading.Thread(target=check, daemon=True).start()
 
     def _finish_onboarding(self):
-        self.cfg["api_key"] = self.key_entry.get().strip() \
-            if hasattr(self, "key_entry") else self.cfg["api_key"]
-        self.cfg["generate_pdf"] = self.pdf_var.get()
-        self.cfg["always_on_top"] = bool(self.top_var.get())
-        self.cfg["onboarded"] = True
-        settings.save(self.cfg)
+        try:
+            chave = getattr(self, "_chave_digitada", "") or self.cfg.get(
+                "api_key", "")
+            self.cfg["api_key"] = chave
+            self.cfg["generate_pdf"] = self.pdf_var.get()
+            self.cfg["always_on_top"] = bool(self.top_var.get())
+            self.cfg["onboarded"] = True
+            settings.save(self.cfg)
+        except Exception as e:  # noqa: BLE001 — nunca falhar em silêncio
+            from tkinter import messagebox
+            messagebox.showerror(
+                "Erro ao salvar", f"Não foi possível concluir: {e}")
+            return
         self.widget_mode = True
         self._apply_window_mode()
 
