@@ -53,7 +53,7 @@ def fim():
     res["chave"] = salvo["api_key"]
     res["widget"] = app.widget_mode
     res["drop"] = hasattr(app, "drop")
-    app._ao_fechar()
+    app.quit()
 
 app.after(300, passo1)
 app.mainloop()
