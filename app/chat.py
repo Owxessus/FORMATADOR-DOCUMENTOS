@@ -30,6 +30,8 @@ português do Brasil, de forma direta e prática.
 
 Você pode:
 - conversar e ajudar a redigir, resumir e revisar textos;
+- consultar a web quando a busca estiver ativada (nesse caso, cite as fontes
+  e não invente: se não achar, diga que não achou);
 - ler o conteúdo dos anexos que aparecem na conversa;
 - gerar imagens;
 - editar planilhas Excel anexadas.
@@ -158,14 +160,40 @@ def _mensagem_usuario(texto: str, anexos: list[dict]) -> dict:
     return {"role": "user", "content": partes}
 
 
+# busca na web (OpenRouter): US$ 0,007 por consulta, com até 10 resultados
+PLUGIN_WEB = {"plugins": [{"id": "web", "max_results": 5}]}
+
+
 def conversar(cliente: ai_client.OpenRouterClient, historico: list[dict],
-              texto: str, anexos: list[dict]) -> str:
-    """Envia a mensagem e devolve a resposta bruta do modelo."""
+              texto: str, anexos: list[dict],
+              web: bool = False) -> tuple[str, list[dict]]:
+    """Envia a mensagem. Devolve (resposta, fontes consultadas na web)."""
     msgs = [{"role": "system", "content": SYSTEM}]
+    if web:
+        msgs.append({"role": "system", "content":
+                     "Você tem busca na web ativada nesta mensagem. Use os "
+                     "resultados para responder com informação atual e cite "
+                     "de onde tirou. Se os resultados não responderem, diga "
+                     "que não encontrou em vez de supor."})
     for m in historico[-20:]:
         msgs.append({"role": m["role"], "content": m["texto"]})
     msgs.append(_mensagem_usuario(texto, anexos))
-    return cliente._chat(msgs)
+
+    msg = cliente._chat(msgs, extras=PLUGIN_WEB if web else None,
+                        completo=True)
+    fontes = []
+    for a in (msg.get("annotations") or []) if web else []:
+        if a.get("type") == "url_citation":
+            c = a.get("url_citation", {})
+            fontes.append({"titulo": c.get("title") or c.get("url", ""),
+                           "url": c.get("url", "")})
+    # sem repetir a mesma fonte
+    vistos, unicas = set(), []
+    for f in fontes:
+        if f["url"] and f["url"] not in vistos:
+            vistos.add(f["url"])
+            unicas.append(f)
+    return msg.get("content") or "", unicas
 
 
 def extrair_acao(resposta: str) -> dict | None:

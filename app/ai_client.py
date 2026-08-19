@@ -96,13 +96,18 @@ class OpenRouterClient:
 
     # --------------------------------------------------------- correção
 
-    def _chat(self, payload_msgs: list[dict]) -> str:
+    def _chat(self, payload_msgs: list[dict], extras: dict | None = None,
+              completo: bool = False):
+        """Envia a conversa. Com completo=True devolve a mensagem inteira
+        (texto + citações da busca web); caso contrário só o texto."""
         body = {
             "model": self.model,
             "messages": payload_msgs,
             "temperature": 0.2,
             "usage": {"include": True},
         }
+        if extras:
+            body.update(extras)
         reasoning = model_reasoning(self.model)
         if reasoning:
             body["reasoning"] = reasoning
@@ -124,7 +129,8 @@ class OpenRouterClient:
             raise ApiError(str(data["error"].get("message", data["error"])))
         usage = data.get("usage") or {}
         self.total_cost += float(usage.get("cost") or 0.0)
-        return data["choices"][0]["message"]["content"]
+        msg = data["choices"][0]["message"]
+        return msg if completo else msg["content"]
 
     @staticmethod
     def _parse_json(content: str) -> list[dict]:

@@ -540,6 +540,9 @@ class App(TkinterDnD.Tk):
         ctk.CTkButton(linha, text="🧹", width=42, height=32,
                       fg_color=("gray60", "gray35"),
                       command=self._chat_limpar).pack(side="left", padx=(0, 4))
+        self.web_var = ctk.BooleanVar(value=self.cfg.get("web_busca", False))
+        ctk.CTkSwitch(linha, text="🌐", width=52, variable=self.web_var,
+                      command=self._salvar_web).pack(side="left", padx=(0, 6))
         self.chat_enviar_btn = ctk.CTkButton(
             linha, text="Enviar  ↵", height=32, fg_color=ACCENT,
             hover_color=ACCENT_HOVER, font=ctk.CTkFont(weight="bold"),
@@ -561,8 +564,19 @@ class App(TkinterDnD.Tk):
                 "• anexe uma planilha e peça “crie uma coluna com o total "
                 "por família e destaque o cabeçalho”\n"
                 "• anexe uma foto de um documento e peça “transcreva”\n"
-                "• “gere uma imagem de um cartaz para reunião de famílias”",
+                "• “gere uma imagem de um cartaz para reunião de famílias”\n\n"
+                "Ligue o 🌐 ao lado do Enviar para eu consultar a internet "
+                "(ex.: “qual o valor atual do Bolsa Família?”). Cada "
+                "pergunta com busca custa cerca de US$ 0,007 a mais.",
                 salvar=False)
+
+    def _salvar_web(self):
+        self.cfg["web_busca"] = bool(self.web_var.get())
+        settings.save(self.cfg)
+        self.chat_status.configure(
+            text=("busca na web ligada · +US$ 0,007 por pergunta"
+                  if self.web_var.get() else "busca na web desligada"),
+            text_color=GRAY_TXT)
 
     def _chat_escrever(self, quem: str, texto: str, salvar=True):
         marca = {"user": "Você", "assistente": "Assistente",
@@ -625,7 +639,12 @@ class App(TkinterDnD.Tk):
                                                  model=self.cfg["model"])
                 anexos = [chat.preparar_anexo(c) for c in caminhos]
                 hist = [m for m in chat.carregar()][:-1]
-                resposta = chat.conversar(cli, hist, texto, anexos)
+                usar_web = bool(self.web_var.get())
+                resposta, fontes = chat.conversar(cli, hist, texto, anexos,
+                                                  web=usar_web)
+                if fontes:
+                    resposta += "\n\nFontes consultadas:\n" + "\n".join(
+                        f"• {f['titulo']}\n  {f['url']}" for f in fontes[:5])
                 acao = chat.extrair_acao(resposta)
                 extra = ""
 

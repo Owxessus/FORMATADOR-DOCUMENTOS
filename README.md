@@ -46,6 +46,7 @@ No topo do painel esquerdo há um alternador **Formatador / Assistente**. O assi
 
 - **conversar** e ajudar a redigir, resumir e revisar textos;
 - **ler anexos**: `.docx`, `.xlsx`, `.pdf`, `.txt` e **imagens** — dá para fotografar um documento e pedir "transcreva" (OCR pelo próprio modelo de visão);
+- **buscar na internet**: ligue o interruptor **🌐** ao lado do Enviar e a pergunta é respondida com informação atual, listando as **fontes consultadas** ao final. Custa cerca de **US$ 0,007 por pergunta** (busca da OpenRouter, até 5 resultados), por isso fica desligado por padrão — a preferência é lembrada;
 - **gerar imagens** (via `bytedance-seed/seedream-5-0-lite`, ~US$ 0,035 por imagem);
 - **editar planilhas Excel por linguagem natural**: anexe o `.xlsx` e peça *"crie uma coluna com o custo por pessoa e destaque o cabeçalho"*.
 
