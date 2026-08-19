@@ -16,6 +16,7 @@ DEFAULTS = {
     "out_mode": "mesma",           # mesma | fixa | perguntar
     "out_dir": "",                 # usado quando out_mode == "fixa"
     "check_updates": True,
+    "painel": "Formatador",   # Formatador | Assistente
     "geom_widget": "",             # "LxA+X+Y" lembrado entre sessões
     "geom_janela": "",
     "onboarded": False,

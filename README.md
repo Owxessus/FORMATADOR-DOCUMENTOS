@@ -40,6 +40,17 @@ O próprio app guia esse processo no primeiro uso. Em resumo:
 - **Vários arquivos de uma vez**: solte quantos quiser — eles entram numa fila e são processados em sequência;
 - Ao final, o botão **📂 Abrir pasta** leva direto aos arquivos gerados, e **🔁 Refazer com a instrução acima** reprocessa o mesmo documento com uma nova instrução, sem procurar o arquivo de novo.
 
+## 💬 Assistente (chat)
+
+No topo do painel esquerdo há um alternador **Formatador / Assistente**. O assistente é um chat comum, com **conversa persistente** (continua de onde parou mesmo depois de fechar), que sabe:
+
+- **conversar** e ajudar a redigir, resumir e revisar textos;
+- **ler anexos**: `.docx`, `.xlsx`, `.pdf`, `.txt` e **imagens** — dá para fotografar um documento e pedir "transcreva" (OCR pelo próprio modelo de visão);
+- **gerar imagens** (via `bytedance-seed/seedream-5-0-lite`, ~US$ 0,035 por imagem);
+- **editar planilhas Excel por linguagem natural**: anexe o `.xlsx` e peça *"crie uma coluna com o custo por pessoa e destaque o cabeçalho"*.
+
+Sobre as planilhas, uma decisão de segurança importante: **a IA nunca executa código**. Ela devolve uma lista de operações conhecidas (escrever célula, fórmula, preencher abaixo, formato, formato numérico, largura, congelar painéis) que o app aplica com openpyxl — e sempre numa **cópia** (`_EDITADO.xlsx`), preservando o arquivo original.
+
 ## 📋 Aba Formulários
 
 Além de formatar relatórios prontos, o app **preenche modelos**. Um modelo é um documento do serviço — com timbre e assinatura — onde os lugares a preencher estão marcados com chaves duplas:

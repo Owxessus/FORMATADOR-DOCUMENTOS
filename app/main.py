@@ -17,6 +17,7 @@ from tkinterdnd2 import DND_FILES, TkinterDnD
 
 import ai_client
 import archive
+import chat
 import forms
 import memory
 import outdir
@@ -63,6 +64,7 @@ class App(TkinterDnD.Tk):
         self.busy = False
         self.queue: list[str] = []
         self.anexados: list[str] = []   # esperando o botão Formatar
+        self.painel = self.cfg.get("painel", "Formatador")
         self.job = None
         self.last_path: str | None = None
         self.update_info: dict | None = None
@@ -373,6 +375,60 @@ class App(TkinterDnD.Tk):
         left = ctk.CTkFrame(body, fg_color="transparent")
         left.pack(side="left", fill="both", expand=True)
 
+        # alternador Formatador / Assistente
+        self.painel_var = ctk.StringVar(value=self.painel)
+        ctk.CTkSegmentedButton(
+            left, values=["Formatador", "Assistente"],
+            variable=self.painel_var,
+            command=self._trocar_painel).pack(fill="x", pady=(0, 6))
+
+        if self.painel == "Formatador":
+            self._build_formatador(left)
+        else:
+            self._build_chat(left)
+
+        # painel lateral (modo janela)
+        if not self.widget_mode:
+            right = ctk.CTkFrame(body, width=360)
+            right.pack(side="right", fill="both", padx=(12, 0))
+            tabs = ctk.CTkTabview(right, width=350)
+            tabs.pack(fill="both", expand=True, padx=6, pady=6)
+            self._build_forms_tab(tabs.add("Formulários"))
+            self._build_search_tab(tabs.add("Busca"))
+            self._build_history_tab(tabs.add("Histórico"))
+            self._build_memory_tab(tabs.add("Memória"))
+            self._build_settings_tab(tabs.add("Configurações"))
+
+    def _build_history_tab(self, tab):
+        frame = ctk.CTkScrollableFrame(tab, fg_color="transparent")
+        frame.pack(fill="both", expand=True)
+        hist = self.cfg.get("history", [])
+        if not hist:
+            ctk.CTkLabel(frame, text="Nenhum documento processado ainda.",
+                         text_color=GRAY_TXT).pack(pady=20)
+        for h in hist:
+            card = ctk.CTkFrame(frame, corner_radius=10)
+            card.pack(fill="x", pady=4, padx=4)
+            ctk.CTkLabel(card, text=h["file"], anchor="w",
+                         font=ctk.CTkFont(weight="bold")).pack(
+                fill="x", padx=10, pady=(6, 0))
+            ctk.CTkLabel(card, anchor="w", text_color=GRAY_TXT,
+                         text=(f'{h["when"]}  ·  {h["changed"]} correções  ·  '
+                               f'US$ {h["cost"]:.3f}')).pack(
+                fill="x", padx=10, pady=(0, 6))
+
+    def _trocar_painel(self, valor):
+        self.painel = valor
+        self.cfg["painel"] = valor
+        settings.save(self.cfg)
+        self._show_main()
+
+    def _build_formatador(self, left):
+        # ancorado embaixo ANTES do resto: assim os botões de ação ficam
+        # sempre visíveis, independentemente do tamanho da janela
+        rodape = ctk.CTkFrame(left, fg_color="transparent")
+        rodape.pack(side="bottom", fill="x")
+
         mem = memory.load()
         self.perfil_var = ctk.StringVar(value="Detectar automaticamente")
         ctk.CTkOptionMenu(left, values=list(mem["perfis"]),
@@ -419,7 +475,7 @@ class App(TkinterDnD.Tk):
         self.log_box.pack(fill="both", expand=True)
         self.log_box.insert("1.0", "Solte um arquivo para começar.\n")
         self.log_box.configure(state="disabled")
-        linha_cp = ctk.CTkFrame(left, fg_color="transparent")
+        linha_cp = ctk.CTkFrame(rodape, fg_color="transparent")
         linha_cp.pack(fill="x", pady=(4, 0))
         ctk.CTkButton(linha_cp, text="📋 Copiar resumo", height=26,
                       fg_color=("gray60", "gray35"), command=self._copiar_resumo).pack(
@@ -429,59 +485,193 @@ class App(TkinterDnD.Tk):
             side="left")
 
         self.enviar_btn = ctk.CTkButton(
-            left, text="▶  Formatar", height=34, fg_color=ACCENT,
+            rodape, text="▶  Formatar", height=34, fg_color=ACCENT,
             hover_color=ACCENT_HOVER,
             font=ctk.CTkFont(size=13, weight="bold"),
             command=self._formatar_anexados)
         self.limpar_anexo_btn = ctk.CTkButton(
-            left, text="Remover anexos", height=24,
+            rodape, text="Remover anexos", height=24,
             fg_color=("gray60", "gray35"), command=self._limpar_anexos)
         self.cancelar_btn = ctk.CTkButton(
-            left, text="✕  Cancelar", height=30, fg_color="#9B2C2C",
+            rodape, text="✕  Cancelar", height=30, fg_color="#9B2C2C",
             hover_color="#7B2020", command=self._cancelar)
 
-        self.saldo_lbl = ctk.CTkLabel(left, text="", anchor="e",
+        self.saldo_lbl = ctk.CTkLabel(rodape, text="", anchor="e",
                                       text_color=GRAY_TXT,
                                       font=ctk.CTkFont(size=10))
         self.saldo_lbl.pack(fill="x")
         self._atualizar_saldo()
 
-        self.open_btn = ctk.CTkButton(left, text="📂  Abrir pasta",
+        self.open_btn = ctk.CTkButton(rodape, text="📂  Abrir pasta",
                                       fg_color=OK_COLOR, height=34,
                                       command=lambda: None)
         self.redo_btn = ctk.CTkButton(
-            left, text="🔁  Refazer com a instrução acima", height=30,
+            rodape, text="🔁  Refazer com a instrução acima", height=30,
             fg_color=("gray60", "gray35"), command=self._reprocess)
 
-        # painel lateral (modo janela)
-        if not self.widget_mode:
-            right = ctk.CTkFrame(body, width=360)
-            right.pack(side="right", fill="both", padx=(12, 0))
-            tabs = ctk.CTkTabview(right, width=350)
-            tabs.pack(fill="both", expand=True, padx=6, pady=6)
-            self._build_forms_tab(tabs.add("Formulários"))
-            self._build_search_tab(tabs.add("Busca"))
-            self._build_history_tab(tabs.add("Histórico"))
-            self._build_memory_tab(tabs.add("Memória"))
-            self._build_settings_tab(tabs.add("Configurações"))
 
-    def _build_history_tab(self, tab):
-        frame = ctk.CTkScrollableFrame(tab, fg_color="transparent")
-        frame.pack(fill="both", expand=True)
-        hist = self.cfg.get("history", [])
-        if not hist:
-            ctk.CTkLabel(frame, text="Nenhum documento processado ainda.",
-                         text_color=GRAY_TXT).pack(pady=20)
-        for h in hist:
-            card = ctk.CTkFrame(frame, corner_radius=10)
-            card.pack(fill="x", pady=4, padx=4)
-            ctk.CTkLabel(card, text=h["file"], anchor="w",
-                         font=ctk.CTkFont(weight="bold")).pack(
-                fill="x", padx=10, pady=(6, 0))
-            ctk.CTkLabel(card, anchor="w", text_color=GRAY_TXT,
-                         text=(f'{h["when"]}  ·  {h["changed"]} correções  ·  '
-                               f'US$ {h["cost"]:.3f}')).pack(
-                fill="x", padx=10, pady=(0, 6))
+    # ------------------------------------------------------ assistente
+
+    def _build_chat(self, left):
+        rodape = ctk.CTkFrame(left, fg_color="transparent")
+        rodape.pack(side="bottom", fill="x")
+
+        self.chat_anexos: list[str] = []
+        self.chat_box = ctk.CTkTextbox(left, font=ctk.CTkFont(size=12),
+                                       wrap="word")
+        self.chat_box.pack(fill="both", expand=True)
+        self.chat_box.configure(state="disabled")
+
+        self.chat_anexos_lbl = ctk.CTkLabel(
+            rodape, text="", anchor="w", text_color=GRAY_TXT,
+            font=ctk.CTkFont(size=10), wraplength=300)
+        self.chat_anexos_lbl.pack(fill="x")
+
+        self.chat_entry = ctk.CTkTextbox(rodape, height=60,
+                                         font=ctk.CTkFont(size=12))
+        self.chat_entry.pack(fill="x", pady=(4, 4))
+        self.chat_entry.bind("<Return>", self._chat_enviar_tecla)
+
+        linha = ctk.CTkFrame(rodape, fg_color="transparent")
+        linha.pack(fill="x")
+        ctk.CTkButton(linha, text="📎", width=42, height=32,
+                      fg_color=("gray60", "gray35"),
+                      command=self._chat_anexar).pack(side="left", padx=(0, 4))
+        ctk.CTkButton(linha, text="🧹", width=42, height=32,
+                      fg_color=("gray60", "gray35"),
+                      command=self._chat_limpar).pack(side="left", padx=(0, 4))
+        self.chat_enviar_btn = ctk.CTkButton(
+            linha, text="Enviar  ↵", height=32, fg_color=ACCENT,
+            hover_color=ACCENT_HOVER, font=ctk.CTkFont(weight="bold"),
+            command=self._chat_enviar)
+        self.chat_enviar_btn.pack(side="left", expand=True, fill="x")
+
+        self.chat_status = ctk.CTkLabel(rodape, text="", text_color=GRAY_TXT,
+                                        font=ctk.CTkFont(size=10))
+        self.chat_status.pack(fill="x")
+
+        for m in chat.carregar():
+            self._chat_escrever(m["role"], m["texto"], salvar=False)
+        if not chat.carregar():
+            self._chat_escrever(
+                "assistente",
+                "Olá! Posso conversar, ler documentos e imagens que você "
+                "anexar, gerar imagens e editar planilhas do Excel.\n\n"
+                "Exemplos:\n"
+                "• anexe uma planilha e peça “crie uma coluna com o total "
+                "por família e destaque o cabeçalho”\n"
+                "• anexe uma foto de um documento e peça “transcreva”\n"
+                "• “gere uma imagem de um cartaz para reunião de famílias”",
+                salvar=False)
+
+    def _chat_escrever(self, quem: str, texto: str, salvar=True):
+        marca = {"user": "Você", "assistente": "Assistente",
+                 "assistant": "Assistente"}.get(quem, quem)
+        self.chat_box.configure(state="normal")
+        self.chat_box.insert("end", f"\n{marca}:\n{texto}\n")
+        self.chat_box.see("end")
+        self.chat_box.configure(state="disabled")
+        if salvar:
+            h = chat.carregar()
+            h.append({"role": "user" if quem == "user" else "assistant",
+                      "texto": texto})
+            chat.salvar(h)
+
+    def _chat_anexar(self):
+        from tkinter import filedialog
+        arqs = filedialog.askopenfilenames(
+            title="Anexar à conversa",
+            filetypes=[("Documentos e imagens",
+                        "*.docx *.xlsx *.pdf *.png *.jpg *.jpeg *.txt"),
+                       ("Todos", "*.*")])
+        self.chat_anexos.extend(arqs)
+        nomes = ", ".join(os.path.basename(a) for a in self.chat_anexos)
+        self.chat_anexos_lbl.configure(
+            text=f"📎 {nomes}" if nomes else "")
+
+    def _chat_limpar(self):
+        chat.limpar()
+        self.chat_anexos = []
+        self._show_main()
+
+    def _chat_enviar_tecla(self, evt):
+        if evt.state & 0x0001:      # Shift+Enter quebra linha
+            return None
+        self._chat_enviar()
+        return "break"
+
+    def _chat_enviar(self):
+        texto = self.chat_entry.get("1.0", "end").strip()
+        if not texto and not self.chat_anexos:
+            return
+        if not self.cfg.get("api_key"):
+            self.chat_status.configure(text="Configure a chave OpenRouter.",
+                                       text_color=ERR_COLOR)
+            return
+        anexos_nomes = [os.path.basename(a) for a in self.chat_anexos]
+        rotulo = (texto + (f"\n[anexos: {', '.join(anexos_nomes)}]"
+                           if anexos_nomes else ""))
+        self._chat_escrever("user", rotulo)
+        self.chat_entry.delete("1.0", "end")
+        caminhos = list(self.chat_anexos)
+        self.chat_anexos = []
+        self.chat_anexos_lbl.configure(text="")
+        self.chat_enviar_btn.configure(state="disabled", text="…")
+        self.chat_status.configure(text="Pensando…", text_color=GRAY_TXT)
+
+        def tarefa():
+            try:
+                cli = ai_client.OpenRouterClient(self.cfg["api_key"],
+                                                 model=self.cfg["model"])
+                anexos = [chat.preparar_anexo(c) for c in caminhos]
+                hist = [m for m in chat.carregar()][:-1]
+                resposta = chat.conversar(cli, hist, texto, anexos)
+                acao = chat.extrair_acao(resposta)
+                extra = ""
+
+                if acao and acao.get("acao") == "gerar_imagem":
+                    self.after(0, lambda: self.chat_status.configure(
+                        text="Gerando imagem…"))
+                    pasta = (self.cfg.get("out_dir")
+                             or os.path.join(os.path.expanduser("~"),
+                                             "Desktop"))
+                    destino = chat.gerar_imagem(cli, acao["prompt"], pasta)
+                    resposta = f"Imagem criada: {os.path.basename(destino)}"
+                    extra = destino
+
+                elif acao and acao.get("acao") == "editar_planilha":
+                    planilha = next((a.get("planilha") for a in anexos
+                                     if a.get("planilha")), None)
+                    if not planilha:
+                        resposta = ("Anexe a planilha (.xlsx) que devo editar "
+                                    "e repita o pedido.")
+                    else:
+                        destino = chat.aplicar_operacoes(
+                            planilha, acao.get("operacoes", []))
+                        resposta = (f"{acao.get('resumo', 'Planilha editada')}"
+                                    f"\n\nSalvo como: "
+                                    f"{os.path.basename(destino)}\n"
+                                    f"(o arquivo original não foi alterado)")
+                        extra = destino
+
+                def concluir():
+                    self._chat_escrever("assistente", resposta)
+                    self.chat_enviar_btn.configure(state="normal",
+                                                   text="Enviar  ↵")
+                    custo = f" · US$ {cli.total_cost:.4f}" if cli.total_cost else ""
+                    self.chat_status.configure(text=f"pronto{custo}",
+                                               text_color=OK_COLOR)
+                    if extra:
+                        open_folder(extra)
+                self.after(0, concluir)
+            except Exception as e:  # noqa: BLE001
+                msg = str(e)
+                self.after(0, lambda: (
+                    self.chat_enviar_btn.configure(state="normal",
+                                                   text="Enviar  ↵"),
+                    self.chat_status.configure(text=f"✗ {msg}",
+                                               text_color=ERR_COLOR)))
+        threading.Thread(target=tarefa, daemon=True).start()
 
     # --------------------------------------------------- formulários
 
