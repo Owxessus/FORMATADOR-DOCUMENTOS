@@ -31,7 +31,10 @@ O próprio app guia esse processo no primeiro uso. Em resumo:
 
 ## 🖥️ Usando
 
-- O app abre como um **widget compacto** que fica por cima das outras janelas — arraste o arquivo pra ele e pronto;
+- O app abre como um **widget compacto** que fica por cima das outras janelas;
+- **Arraste o arquivo** (ou clique para escolher): ele fica **anexado**, esperando. Escreva as instruções se quiser e clique em **▶ Formatar** (ou tecle Enter no campo de instruções). Nada começa sozinho — assim dá tempo de escrever o que precisa;
+- Durante o processamento há um botão **✕ Cancelar**; nada é gravado se você cancelar;
+- O rodapé mostra o **saldo da conta OpenRouter**, atualizado depois de cada documento;
 - O botão **⤢** alterna para o modo janela completa, com **histórico** (custo por documento incluído) e **configurações**;
 - O campo *"Instruções adicionais"* é opcional: use para pedidos pontuais, como "não mexa no terceiro parágrafo" ou "assinatura como Gerente";
 - **Vários arquivos de uma vez**: solte quantos quiser — eles entram numa fila e são processados em sequência;

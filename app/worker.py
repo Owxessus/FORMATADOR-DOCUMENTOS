@@ -16,6 +16,10 @@ import settings
 import xlsx_engine
 
 
+class CancelamentoPedido(Exception):
+    """Sinaliza que a usuária pediu para interromper."""
+
+
 class Job(threading.Thread):
     """Processa um arquivo; comunica progresso/resultado via callbacks
     (chamados a partir da thread — a UI deve re-postar com .after())."""
@@ -25,6 +29,7 @@ class Job(threading.Thread):
                  perfil: str = "Detectar automaticamente",
                  out_dir: str | None = None):
         super().__init__(daemon=True)
+        self.cancelar = threading.Event()
         self.out_dir_override = out_dir
         self.want_pdf = want_pdf
         self.perfil = perfil
@@ -34,6 +39,16 @@ class Job(threading.Thread):
         self.on_progress = on_progress
         self.on_done = on_done
         self.on_error = on_error
+
+    def cancelado(self) -> bool:
+        return self.cancelar.is_set()
+
+    def _checkpoint(self, msg: str = ""):
+        """Ponto onde o cancelamento tem efeito (entre etapas)."""
+        if self.cancelar.is_set():
+            raise CancelamentoPedido()
+        if msg:
+            self.on_progress(msg)
 
     def run(self):
         try:
@@ -46,7 +61,7 @@ class Job(threading.Thread):
 
             def corrector(texts, kinds, extra):
                 return client.corrector(texts, kinds, extra,
-                                        progress=self.on_progress,
+                                        progress=self._checkpoint,
                                         protected=protected, fatos=mem_fatos)
 
             ext = os.path.splitext(self.path)[1].lower()
@@ -72,14 +87,14 @@ class Job(threading.Thread):
                 ]
                 res = docx_engine.process(
                     self.path, corrector, out_dir=out_dir,
-                    extra_instructions=extra, progress=self.on_progress,
+                    extra_instructions=extra, progress=self._checkpoint,
                     signature_labels=perfil.get("assinatura") or None,
                     checkers=verificadores)
                 res["perfil"] = nome_perfil
             elif ext == ".xlsx":
                 res = xlsx_engine.process(
                     self.path, corrector, out_dir=out_dir,
-                    extra_instructions=self.extra, progress=self.on_progress)
+                    extra_instructions=self.extra, progress=self._checkpoint)
             else:
                 raise ValueError(
                     "Formato não suportado. Use arquivos .docx ou .xlsx.")
@@ -103,7 +118,10 @@ class Job(threading.Thread):
                 "cost": round(res["cost"], 4),
                 "changed": res.get("changed", 0),
             })
+            self._checkpoint()
             self.on_done(res)
+        except CancelamentoPedido:
+            self.on_error("Cancelado por você. Nenhum arquivo foi gravado.")
         except Exception as e:  # noqa: BLE001 — erro vai para a UI
             self.on_error(str(e))
 

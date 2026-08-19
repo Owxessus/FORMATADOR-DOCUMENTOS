@@ -74,6 +74,17 @@ class OpenRouterClient:
 
     # ------------------------------------------------------------ chave
 
+    def saldo(self) -> str:
+        """Texto curto com o saldo restante, ou "" se a conta não expõe."""
+        try:
+            d = self.validate_key()
+        except Exception:  # noqa: BLE001
+            return ""
+        limite, usado = d.get("limit"), d.get("usage")
+        if limite is None:
+            return f"gasto: US$ {usado:.2f}" if usado is not None else ""
+        return f"saldo: US$ {max(float(limite) - float(usado or 0), 0):.2f}"
+
     def validate_key(self) -> dict:
         """Valida a chave; retorna dados de uso/limite da conta."""
         r = requests.get(KEY_URL, timeout=30,
@@ -180,6 +191,7 @@ class OpenRouterClient:
 
         result: dict[int, str] = {}
         for n, b in enumerate(batches, 1):
+            # progress() é o checkpoint: lança exceção se foi cancelado
             progress(f"Corrigindo texto com IA… (parte {n}/{len(batches)})")
             result.update(self._correct_batch(b, extra_instructions,
                                               protected, fatos))

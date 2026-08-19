@@ -52,30 +52,71 @@ def checar() -> dict | None:
 
 
 def baixar_e_instalar(url: str, progresso=lambda m: None) -> None:
-    """Baixa o novo executável e agenda a troca + reinício.
+    """Baixa a nova versão e agenda a troca do executável.
 
-    O próprio programa não pode se sobrescrever enquanto roda, então um
-    script auxiliar espera o fechamento, troca o arquivo e reabre.
+    Cuidados aprendidos na prática:
+      * o programa PRECISA sair de verdade antes da troca — o Windows não
+        deixa sobrescrever um .exe em uso. Como esta função roda numa
+        thread, sys.exit() não serve: encerra só a thread. Usamos os._exit;
+      * o script espera o PID sumir (não um tempo fixo) e tenta a troca
+        várias vezes, para o caso de o antivírus segurar o arquivo;
+      * se a troca falhar, o script abre a versão antiga e deixa o novo
+        executável na Área de Trabalho, com aviso.
     """
     if not url or not getattr(sys, "frozen", False):
-        raise RuntimeError("Atualização automática só funciona no aplicativo "
-                           "instalado (.exe).")
-    destino = sys.executable
+        raise RuntimeError("A atualização automática só funciona no "
+                           "aplicativo instalado (.exe).")
+    destino = os.path.abspath(sys.executable)
     progresso("Baixando a nova versão…")
     tmp = os.path.join(tempfile.gettempdir(), "Formatador_novo.exe")
     req = urllib.request.Request(url, headers={"User-Agent": "Formatador"})
-    with urllib.request.urlopen(req, timeout=300) as r, open(tmp, "wb") as f:
+    with urllib.request.urlopen(req, timeout=600) as r, open(tmp, "wb") as f:
         f.write(r.read())
 
-    progresso("Instalando…")
+    # confere que baixou um executável de verdade antes de trocar
+    with open(tmp, "rb") as f:
+        if f.read(2) != b"MZ" or os.path.getsize(tmp) < 5_000_000:
+            os.remove(tmp)
+            raise RuntimeError("O download veio incompleto. Tente de novo.")
+
+    progresso("Instalando… o programa vai reabrir sozinho.")
+    pid = os.getpid()
+    reserva = os.path.join(os.path.expanduser("~"), "Desktop",
+                           "Formatador_NOVO.exe")
     bat = os.path.join(tempfile.gettempdir(), "atualizar_formatador.bat")
     with open(bat, "w", encoding="cp1252", errors="ignore") as f:
-        f.write(
-            "@echo off\r\n"
-            "timeout /t 3 /nobreak >nul\r\n"
-            f'move /Y "{tmp}" "{destino}" >nul\r\n'
-            f'start "" "{destino}"\r\n'
-            'del "%~f0"\r\n')
+        f.write(f"""@echo off
+rem espera o programa fechar de verdade (no maximo ~30s)
+set /a tentativas=0
+:esperar
+tasklist /FI "PID eq {pid}" 2>nul | find "{pid}" >nul || goto trocar
+set /a tentativas+=1
+if %tentativas% GEQ 30 goto trocar
+timeout /t 1 /nobreak >nul
+goto esperar
+
+:trocar
+set /a n=0
+:tentar
+move /Y "{tmp}" "{destino}" >nul 2>&1
+if not errorlevel 1 goto pronto
+set /a n+=1
+if %n% GEQ 8 goto falhou
+timeout /t 2 /nobreak >nul
+goto tentar
+
+:falhou
+copy /Y "{tmp}" "{reserva}" >nul 2>&1
+start "" "{destino}"
+msg %USERNAME% "Nao foi possivel substituir o programa automaticamente. O novo executavel foi salvo na Area de Trabalho como Formatador_NOVO.exe - basta substituir manualmente." 2>nul
+del "%~f0"
+exit
+
+:pronto
+start "" "{destino}"
+del "%~f0"
+""")
     subprocess.Popen(["cmd", "/c", bat],
                      creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
-    sys.exit(0)
+    # encerra o processo INTEIRO (sys.exit sairia só desta thread)
+    os._exit(0)

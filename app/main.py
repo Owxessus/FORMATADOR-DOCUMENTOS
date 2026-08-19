@@ -29,6 +29,9 @@ APP_TITLE = f"Formatador de Relatórios  v{version.VERSION}"
 WIDGET_SIZE = "380x580"
 FULL_SIZE = "820x560"
 
+GRAY_TXT = ("gray35", "gray70")     # legível no claro E no escuro
+TXT = ("gray10", "#DCE4EE")         # texto principal nos dois temas
+FUNDO = ("#EBEBEB", "#242424")      # fundo da janela raiz (Tk puro)
 ACCENT = "#2B6CB0"
 ACCENT_HOVER = "#255EA0"
 OK_COLOR = "#2F855A"
@@ -51,12 +54,16 @@ class App(TkinterDnD.Tk):
         self.cfg = settings.load()
         ctk.set_appearance_mode(self.cfg.get("theme", "light"))
         ctk.set_default_color_theme("blue")
+        self.configure(bg=FUNDO[1] if self.cfg.get("theme") == "dark"
+                       else FUNDO[0])
 
         self.title(APP_TITLE)
         self._geom_job = None
         self.widget_mode = True
         self.busy = False
         self.queue: list[str] = []
+        self.anexados: list[str] = []   # esperando o botão Formatar
+        self.job = None
         self.last_path: str | None = None
         self.update_info: dict | None = None
         self._apply_window_mode(initial=True)
@@ -102,14 +109,14 @@ class App(TkinterDnD.Tk):
             import webbrowser
             webbrowser.open(updater.PAGINA)
             return
-        self._set_status("Atualizando…", "gray")
+        self._set_status("Atualizando…", GRAY_TXT)
 
         def tarefa():
             try:
                 updater.baixar_e_instalar(
                     info["url"],
                     progresso=lambda m: self.after(0, self._set_status, m,
-                                                   "gray"))
+                                                   GRAY_TXT))
             except Exception as e:  # noqa: BLE001
                 self.after(0, self._set_status, f"✗ {e}", ERR_COLOR)
         threading.Thread(target=tarefa, daemon=True).start()
@@ -185,6 +192,12 @@ class App(TkinterDnD.Tk):
             pass
 
     def _ao_fechar(self):
+        """Fecha o programa inteiro de uma vez.
+
+        Cancelar os callbacks internos do CustomTkinter fazia o destroy()
+        lançar erro no meio do caminho: a janela ia sumindo aos pedaços e
+        era preciso clicar em fechar várias vezes.
+        """
         if self._geom_job:
             try:
                 self.after_cancel(self._geom_job)
@@ -192,17 +205,13 @@ class App(TkinterDnD.Tk):
                 pass
             self._geom_job = None
         self._gravar_agora()
-        # cancela callbacks pendentes (o rastreador de DPI do CustomTkinter
-        # continua agendado e reclama depois que a janela some)
         try:
-            for ident in self.tk.call("after", "info"):
-                try:
-                    self.after_cancel(ident)
-                except Exception:  # noqa: BLE001
-                    pass
+            self.quit()          # encerra o loop de eventos
+            self.destroy()       # e só então destrói a janela
         except Exception:  # noqa: BLE001
             pass
-        self.destroy()
+        finally:
+            os._exit(0)          # garante que nada fica pendurado
 
     def _clear(self):
         for w in self.container.winfo_children():
@@ -255,7 +264,7 @@ class App(TkinterDnD.Tk):
             row = ctk.CTkFrame(frame, fg_color="transparent")
             row.pack(pady=12)
             ctk.CTkButton(row, text="Testar conexão", height=40,
-                          fg_color="gray50", command=self._test_key).pack(
+                          fg_color=("gray60", "gray35"), command=self._test_key).pack(
                 side="left", padx=6)
             def ir_para_3():
                 self._chave_digitada = self.key_entry.get().strip()
@@ -279,7 +288,7 @@ class App(TkinterDnD.Tk):
                 value=self.cfg.get("always_on_top", True))
             ctk.CTkCheckBox(frame, text="Widget sempre visível por cima "
                             "das outras janelas", variable=self.top_var).pack(pady=14)
-            ctk.CTkLabel(frame, wraplength=460, text_color="gray",
+            ctk.CTkLabel(frame, wraplength=460, text_color=GRAY_TXT,
                          text=("Dica de privacidade: na sua conta OpenRouter, "
                                "em Settings → Privacy, desative o uso dos seus "
                                "dados para treinamento.")).pack(pady=6)
@@ -294,7 +303,7 @@ class App(TkinterDnD.Tk):
             self.key_status.configure(text="Cole a chave primeiro.",
                                       text_color=ERR_COLOR)
             return
-        self.key_status.configure(text="Testando…", text_color="gray")
+        self.key_status.configure(text="Testando…", text_color=GRAY_TXT)
 
         def check():
             try:
@@ -346,10 +355,10 @@ class App(TkinterDnD.Tk):
         # barra do topo
         bar = ctk.CTkFrame(outer, fg_color="transparent")
         bar.pack(fill="x")
-        ctk.CTkLabel(bar, text="Formatador",
+        ctk.CTkLabel(bar, text="Formatador", text_color=TXT,
                      font=ctk.CTkFont(size=15, weight="bold")).pack(side="left")
         ctk.CTkButton(bar, text="⤢" if self.widget_mode else "⤡", width=34,
-                      height=28, fg_color="gray70",
+                      height=28, fg_color=("gray70", "gray30"),
                       command=self._toggle_mode).pack(side="right")
 
         if self.update_info:
@@ -377,7 +386,7 @@ class App(TkinterDnD.Tk):
         self.drop.pack(fill="x", expand=False)
         self.drop.pack_propagate(False)
         self.drop_label = ctk.CTkLabel(
-            self.drop, justify="center",
+            self.drop, justify="center", wraplength=290, text_color=TXT,
             font=ctk.CTkFont(size=15, weight="bold"),
             text="📄\nSolte o relatório aqui\n(.docx ou .xlsx)")
         self.drop_label.place(relx=0.5, rely=0.40, anchor="center")
@@ -394,13 +403,14 @@ class App(TkinterDnD.Tk):
             left, placeholder_text="Instruções adicionais (opcional)",
             height=34)
         self.extra_entry.pack(fill="x", pady=(8, 4))
+        self.extra_entry.bind("<Return>", self._formatar_anexados)
 
         self.progress = ctk.CTkProgressBar(left, mode="indeterminate",
                                            height=8)
         self.status = ctk.CTkLabel(left, text="", wraplength=320,
                                    font=ctk.CTkFont(size=12))
         self.status.pack(fill="x")
-        ctk.CTkLabel(left, text="Andamento", anchor="w",
+        ctk.CTkLabel(left, text="Andamento", anchor="w", text_color=TXT,
                      font=ctk.CTkFont(size=12, weight="bold")).pack(
             fill="x", pady=(8, 2))
         self.log_box = ctk.CTkTextbox(
@@ -412,18 +422,36 @@ class App(TkinterDnD.Tk):
         linha_cp = ctk.CTkFrame(left, fg_color="transparent")
         linha_cp.pack(fill="x", pady=(4, 0))
         ctk.CTkButton(linha_cp, text="📋 Copiar resumo", height=26,
-                      fg_color="gray50", command=self._copiar_resumo).pack(
+                      fg_color=("gray60", "gray35"), command=self._copiar_resumo).pack(
             side="left", expand=True, fill="x", padx=(0, 3))
         ctk.CTkButton(linha_cp, text="🧹", height=26, width=40,
-                      fg_color="gray50", command=self._limpar_log).pack(
+                      fg_color=("gray60", "gray35"), command=self._limpar_log).pack(
             side="left")
+
+        self.enviar_btn = ctk.CTkButton(
+            left, text="▶  Formatar", height=34, fg_color=ACCENT,
+            hover_color=ACCENT_HOVER,
+            font=ctk.CTkFont(size=13, weight="bold"),
+            command=self._formatar_anexados)
+        self.limpar_anexo_btn = ctk.CTkButton(
+            left, text="Remover anexos", height=24,
+            fg_color=("gray60", "gray35"), command=self._limpar_anexos)
+        self.cancelar_btn = ctk.CTkButton(
+            left, text="✕  Cancelar", height=30, fg_color="#9B2C2C",
+            hover_color="#7B2020", command=self._cancelar)
+
+        self.saldo_lbl = ctk.CTkLabel(left, text="", anchor="e",
+                                      text_color=GRAY_TXT,
+                                      font=ctk.CTkFont(size=10))
+        self.saldo_lbl.pack(fill="x")
+        self._atualizar_saldo()
 
         self.open_btn = ctk.CTkButton(left, text="📂  Abrir pasta",
                                       fg_color=OK_COLOR, height=34,
                                       command=lambda: None)
         self.redo_btn = ctk.CTkButton(
             left, text="🔁  Refazer com a instrução acima", height=30,
-            fg_color="gray50", command=self._reprocess)
+            fg_color=("gray60", "gray35"), command=self._reprocess)
 
         # painel lateral (modo janela)
         if not self.widget_mode:
@@ -443,14 +471,14 @@ class App(TkinterDnD.Tk):
         hist = self.cfg.get("history", [])
         if not hist:
             ctk.CTkLabel(frame, text="Nenhum documento processado ainda.",
-                         text_color="gray").pack(pady=20)
+                         text_color=GRAY_TXT).pack(pady=20)
         for h in hist:
             card = ctk.CTkFrame(frame, corner_radius=10)
             card.pack(fill="x", pady=4, padx=4)
             ctk.CTkLabel(card, text=h["file"], anchor="w",
                          font=ctk.CTkFont(weight="bold")).pack(
                 fill="x", padx=10, pady=(6, 0))
-            ctk.CTkLabel(card, anchor="w", text_color="gray",
+            ctk.CTkLabel(card, anchor="w", text_color=GRAY_TXT,
                          text=(f'{h["when"]}  ·  {h["changed"]} correções  ·  '
                                f'US$ {h["cost"]:.3f}')).pack(
                 fill="x", padx=10, pady=(0, 6))
@@ -470,7 +498,7 @@ class App(TkinterDnD.Tk):
                                               height=200)
         campos_frame.pack(fill="both", expand=True)
         self.campos_widgets = {}
-        status = ctk.CTkLabel(tab, text="", wraplength=310, text_color="gray",
+        status = ctk.CTkLabel(tab, text="", wraplength=310, text_color=GRAY_TXT,
                               font=ctk.CTkFont(size=11))
 
         def montar_campos(_=None):
@@ -479,7 +507,7 @@ class App(TkinterDnD.Tk):
             self.campos_widgets.clear()
             nome = self.modelo_var.get()
             if not nome.endswith(".docx"):
-                ctk.CTkLabel(campos_frame, wraplength=300, text_color="gray",
+                ctk.CTkLabel(campos_frame, wraplength=300, text_color=GRAY_TXT,
                              justify="left",
                              text=("Nenhum modelo importado ainda.\n\n"
                                    "Um modelo e um documento do servico "
@@ -526,7 +554,7 @@ class App(TkinterDnD.Tk):
                              text_color=OK_COLOR)
 
         ctk.CTkButton(topo, text="Importar...", width=88, height=28,
-                      fg_color="gray50", command=importar).pack(side="left",
+                      fg_color=("gray60", "gray35"), command=importar).pack(side="left",
                                                                 padx=(6, 0))
 
         ctk.CTkLabel(tab, anchor="w",
@@ -547,7 +575,7 @@ class App(TkinterDnD.Tk):
                                  text_color=ERR_COLOR)
                 return
             status.configure(text="Distribuindo nos campos...",
-                             text_color="gray")
+                             text_color=GRAY_TXT)
 
             def tarefa():
                 try:
@@ -574,7 +602,7 @@ class App(TkinterDnD.Tk):
         linha = ctk.CTkFrame(tab, fg_color="transparent")
         linha.pack(fill="x", pady=6)
         ctk.CTkButton(linha, text="Preencher com IA", height=30,
-                      fg_color="gray50", command=preencher_ia).pack(
+                      fg_color=("gray60", "gray35"), command=preencher_ia).pack(
             side="left", expand=True, fill="x", padx=(0, 4))
 
         def gerar():
@@ -616,7 +644,7 @@ class App(TkinterDnD.Tk):
         entry.pack(side="left", fill="x", expand=True)
         res_frame = ctk.CTkScrollableFrame(tab, fg_color="transparent")
         res_frame.pack(fill="both", expand=True)
-        info = ctk.CTkLabel(tab, text_color="gray", font=ctk.CTkFont(size=11),
+        info = ctk.CTkLabel(tab, text_color=GRAY_TXT, font=ctk.CTkFont(size=11),
                             text=f"{archive.total()} documento(s) no índice")
         info.pack(fill="x")
 
@@ -625,7 +653,7 @@ class App(TkinterDnD.Tk):
                 w.destroy()
             if not itens:
                 ctk.CTkLabel(res_frame, text="Nada encontrado.",
-                             text_color="gray").pack(pady=16)
+                             text_color=GRAY_TXT).pack(pady=16)
                 return
             for it in itens:
                 card = ctk.CTkFrame(res_frame, corner_radius=8)
@@ -635,9 +663,9 @@ class App(TkinterDnD.Tk):
                     fill="x", padx=8, pady=(5, 0))
                 ctk.CTkLabel(card, text=it["trecho"][:150], anchor="w",
                              wraplength=300, justify="left",
-                             text_color="gray").pack(fill="x", padx=8)
+                             text_color=GRAY_TXT).pack(fill="x", padx=8)
                 ctk.CTkButton(card, text="Abrir pasta", height=24, width=90,
-                              fg_color="gray50",
+                              fg_color=("gray60", "gray35"),
                               command=lambda c=it["caminho"]:
                               open_folder(c)).pack(anchor="e", padx=8, pady=4)
 
@@ -666,7 +694,7 @@ class App(TkinterDnD.Tk):
             threading.Thread(target=tarefa, daemon=True).start()
 
         ctk.CTkButton(tab, text="📁  Indexar uma pasta…", height=30,
-                      fg_color="gray50", command=indexar_pasta).pack(
+                      fg_color=("gray60", "gray35"), command=indexar_pasta).pack(
             fill="x", pady=(6, 0))
 
     # -------------------------------------------------------- memória
@@ -676,7 +704,7 @@ class App(TkinterDnD.Tk):
         frame = ctk.CTkScrollableFrame(tab, fg_color="transparent")
         frame.pack(fill="both", expand=True)
 
-        ctk.CTkLabel(frame, anchor="w", wraplength=310, text_color="gray",
+        ctk.CTkLabel(frame, anchor="w", wraplength=310, text_color=GRAY_TXT,
                      text="Textos oficiais do serviço. O app avisa quando um "
                           "relatório traz esses trechos com diferenças.").pack(
             fill="x", pady=(4, 6))
@@ -728,7 +756,7 @@ class App(TkinterDnD.Tk):
                       hover_color=ACCENT_HOVER,
                       command=salvar_bloco).pack(side="left", expand=True,
                                                  fill="x", padx=(0, 4))
-        ctk.CTkButton(linha, text="Apagar", fg_color="gray50", width=80,
+        ctk.CTkButton(linha, text="Apagar", fg_color=("gray60", "gray35"), width=80,
                       command=apagar_bloco).pack(side="left")
         aviso.pack()
 
@@ -736,7 +764,7 @@ class App(TkinterDnD.Tk):
         ctk.CTkLabel(frame, anchor="w", text="Fatos institucionais",
                      font=ctk.CTkFont(size=12, weight="bold")).pack(
             fill="x", pady=(14, 2))
-        ctk.CTkLabel(frame, anchor="w", wraplength=310, text_color="gray",
+        ctk.CTkLabel(frame, anchor="w", wraplength=310, text_color=GRAY_TXT,
                      font=ctk.CTkFont(size=11),
                      text=("Um por linha. Servem de contexto para a IA "
                            "entender o texto — ela nunca acrescenta essas "
@@ -770,7 +798,7 @@ class App(TkinterDnD.Tk):
         psel = ctk.CTkOptionMenu(frame, values=editaveis, variable=perfil_var,
                                  dynamic_resizing=False)
         psel.pack(fill="x")
-        ctk.CTkLabel(frame, anchor="w", text_color="gray",
+        ctk.CTkLabel(frame, anchor="w", text_color=GRAY_TXT,
                      text="Assinatura (uma linha por rótulo; vazio = manter "
                           "a do documento)").pack(fill="x", pady=(6, 2))
         assin = ctk.CTkTextbox(frame, height=60)
@@ -823,7 +851,7 @@ class App(TkinterDnD.Tk):
         cur_id = self.cfg.get("model", ai_client.DEFAULT_MODEL)
         model_var = ctk.StringVar(
             value=rev.get(cur_id, next(iter(ai_client.MODEL_CHOICES))))
-        custo_lbl = ctk.CTkLabel(frame, anchor="w", text_color="gray",
+        custo_lbl = ctk.CTkLabel(frame, anchor="w", text_color=GRAY_TXT,
                                  font=ctk.CTkFont(size=11), text="")
 
         def _mostrar_custo(rotulo=None):
@@ -848,7 +876,7 @@ class App(TkinterDnD.Tk):
             frame, values=["mesma", "fixa", "perguntar"],
             variable=modo_var).pack(fill="x")
         pasta_lbl = ctk.CTkLabel(
-            frame, anchor="w", text_color="gray", font=ctk.CTkFont(size=11),
+            frame, anchor="w", text_color=GRAY_TXT, font=ctk.CTkFont(size=11),
             text=self.cfg.get("out_dir") or "(mesma pasta do arquivo original)")
         pasta_lbl.pack(fill="x")
         escolhida = {"path": self.cfg.get("out_dir", "")}
@@ -862,9 +890,9 @@ class App(TkinterDnD.Tk):
                 modo_var.set("fixa")
 
         ctk.CTkButton(frame, text="Escolher pasta fixa…", height=28,
-                      fg_color="gray50", command=escolher_pasta).pack(
+                      fg_color=("gray60", "gray35"), command=escolher_pasta).pack(
             fill="x", pady=(4, 0))
-        ctk.CTkLabel(frame, anchor="w", text_color="gray", wraplength=310,
+        ctk.CTkLabel(frame, anchor="w", text_color=GRAY_TXT, wraplength=310,
                      font=ctk.CTkFont(size=11),
                      text=("Dica: você também pode escrever no campo de "
                            "instruções “salvar na área de trabalho” ou "
@@ -881,7 +909,8 @@ class App(TkinterDnD.Tk):
         ctk.CTkCheckBox(frame, text="Widget sempre por cima",
                         variable=top_var).pack(anchor="w", pady=10)
 
-        theme_var = ctk.StringVar(value=self.cfg.get("theme", "light"))
+        tema_antes = self.cfg.get("theme", "light")
+        theme_var = ctk.StringVar(value=tema_antes)
         field("Tema")
         ctk.CTkSegmentedButton(frame, values=["light", "dark"],
                                variable=theme_var).pack(fill="x")
@@ -890,10 +919,10 @@ class App(TkinterDnD.Tk):
         ctk.CTkCheckBox(frame, text="Avisar quando houver nova versão",
                         variable=upd_var).pack(anchor="w", pady=(10, 4))
         ctk.CTkButton(frame, text="Procurar atualização agora", height=28,
-                      fg_color="gray50",
+                      fg_color=("gray60", "gray35"),
                       command=lambda: self._checar_atualizacao(True)).pack(
             fill="x")
-        ctk.CTkLabel(frame, anchor="w", text_color="gray",
+        ctk.CTkLabel(frame, anchor="w", text_color=GRAY_TXT,
                      font=ctk.CTkFont(size=11),
                      text=f"Versão instalada: {version.VERSION}").pack(
             fill="x", pady=(2, 0))
@@ -911,7 +940,12 @@ class App(TkinterDnD.Tk):
                             out_dir=escolhida["path"],
                             check_updates=bool(upd_var.get()))
             settings.save(self.cfg)
-            ctk.set_appearance_mode(theme_var.get())
+            if theme_var.get() != tema_antes:
+                ctk.set_appearance_mode(theme_var.get())
+                # recria a tela: sem isso, parte dos textos fica com a cor
+                # do tema anterior (era o "dark mal feito")
+                self.after(60, self._show_main)
+                return
             saved.configure(text="✓ Salvo")
             self.after(2000, lambda: saved.configure(text=""))
 
@@ -941,14 +975,46 @@ class App(TkinterDnD.Tk):
     # ------------------------------------------------------------ fila
 
     def _enqueue(self, paths: list[str]):
+        """Anexa os arquivos e espera o botão Formatar — assim dá tempo de
+        escrever as instruções antes de começar."""
         validos = [p for p in paths if os.path.isfile(p)
                    and os.path.splitext(p)[1].lower() in (".docx", ".xlsx")]
         if not validos:
             self._set_status("Solte arquivos .docx ou .xlsx.", ERR_COLOR)
             return
-        self.queue.extend(validos)
-        if not self.busy:
-            self._next_in_queue()
+        self.anexados.extend(v for v in validos if v not in self.anexados)
+        self._mostrar_anexos()
+
+    def _mostrar_anexos(self):
+        n = len(self.anexados)
+        if not n:
+            self.drop_label.configure(
+                text="📄\nSolte o relatório aqui\n(.docx ou .xlsx)")
+            self.enviar_btn.pack_forget()
+            self.limpar_anexo_btn.pack_forget()
+            return
+        nomes = ", ".join(os.path.basename(a)[:26] for a in self.anexados[:2])
+        extra = f" +{n - 2}" if n > 2 else ""
+        self.drop_label.configure(
+            text=f"📎 {n} arquivo(s) anexado(s)\n{nomes}{extra}\n\n"
+                 f"Escreva as instruções (opcional) e clique em Formatar")
+        self.enviar_btn.pack(fill="x", pady=(6, 0))
+        self.limpar_anexo_btn.pack(fill="x", pady=(3, 0))
+        self.extra_entry.focus_set()
+
+    def _limpar_anexos(self):
+        self.anexados.clear()
+        self._mostrar_anexos()
+        self._set_status("")
+
+    def _formatar_anexados(self, _evt=None):
+        if self.busy or not self.anexados:
+            return
+        self.queue = list(self.anexados)
+        self.anexados = []
+        self.enviar_btn.pack_forget()
+        self.limpar_anexo_btn.pack_forget()
+        self._next_in_queue()
 
     def _next_in_queue(self):
         if not self.queue:
@@ -956,15 +1022,17 @@ class App(TkinterDnD.Tk):
         path = self.queue.pop(0)
         self._start(path)
 
-    def _ask_pdf(self) -> bool:
+    def _ask_pdf(self):
+        """True/False para gerar ou não; None = cancelar tudo."""
         pref = self.cfg.get("generate_pdf", "perguntar")
         if pref == "sempre":
             return True
         if pref == "nunca":
             return False
         from tkinter import messagebox
-        return bool(messagebox.askyesno(
-            "PDF", "Gerar também um PDF da versão final?"))
+        return messagebox.askyesnocancel(
+            "PDF", "Gerar também um PDF da versão final?\n\n"
+                   "Sim / Não  —  Cancelar interrompe o processamento.")
 
     def _start(self, path: str):
         if self.busy:
@@ -974,8 +1042,16 @@ class App(TkinterDnD.Tk):
                              "(modo janela → Configurações).", ERR_COLOR)
             return
         self.last_path = path
-        want_pdf = (os.path.splitext(path)[1].lower() == ".docx"
-                    and self._ask_pdf())
+        want_pdf = False
+        if os.path.splitext(path)[1].lower() == ".docx":
+            resposta = self._ask_pdf()
+            if resposta is None:          # a usuária cancelou no diálogo
+                self.queue.clear()
+                self.busy = False
+                self._set_status("Cancelado antes de começar.", GRAY_TXT)
+                self._mostrar_anexos()
+                return
+            want_pdf = bool(resposta)
 
         def perguntar_pasta():
             from tkinter import filedialog
@@ -994,22 +1070,48 @@ class App(TkinterDnD.Tk):
         self.progress.pack(fill="x", pady=(4, 2))
         self.progress.start()
         destino = os.path.basename(pasta) if pasta else "mesma pasta do arquivo"
-        self._set_status(f"Iniciando… (salvando em: {destino})", "gray")
+        self._set_status(f"Iniciando… (salvando em: {destino})", GRAY_TXT)
 
-        job = worker.Job(
+        self.job = worker.Job(
             path, self.cfg, instrucoes,
-            on_progress=lambda m: self.after(0, self._set_status, m, "gray"),
+            on_progress=lambda m: self.after(0, self._set_status, m, GRAY_TXT),
             on_done=lambda r: self.after(0, self._done, r),
             on_error=lambda e: self.after(0, self._fail, e),
             want_pdf=want_pdf, perfil=self.perfil_var.get(), out_dir=pasta)
-        job.start()
+        self.cancelar_btn.configure(state="normal", text="✕  Cancelar")
+        self.cancelar_btn.pack(fill="x", pady=(4, 0))
+        self.job.start()
 
     def _reprocess(self):
         """Refaz o último arquivo com a instrução atual do campo."""
         if self.last_path and not self.busy:
             self._start(self.last_path)
 
-    def _set_status(self, msg: str, color: str = "gray"):
+    def _atualizar_saldo(self):
+        """Consulta o saldo da OpenRouter em segundo plano."""
+        if not self.cfg.get("api_key"):
+            return
+
+        def tarefa():
+            try:
+                texto = ai_client.OpenRouterClient(
+                    self.cfg["api_key"], model=self.cfg["model"]).saldo()
+                if texto:
+                    self.after(0, lambda: self.saldo_lbl.configure(
+                        text=f"OpenRouter · {texto}"))
+            except Exception:  # noqa: BLE001 — indicador é acessório
+                pass
+        threading.Thread(target=tarefa, daemon=True).start()
+
+    def _cancelar(self):
+        """Interrompe o processamento em andamento (efeito entre etapas)."""
+        if self.job and self.job.is_alive():
+            self.job.cancelar.set()
+            self.queue.clear()
+            self._set_status("Cancelando…", GRAY_TXT)
+            self.cancelar_btn.configure(state="disabled", text="Cancelando…")
+
+    def _set_status(self, msg: str, color: str = GRAY_TXT):
         self.status.configure(text=msg, text_color=color)
         self._log(msg)
 
@@ -1045,6 +1147,7 @@ class App(TkinterDnD.Tk):
 
     def _done(self, res: dict):
         self.busy = False
+        self.cancelar_btn.pack_forget()
         self.progress.stop()
         self.progress.pack_forget()
         self.drop_label.configure(
@@ -1076,6 +1179,7 @@ class App(TkinterDnD.Tk):
         if res.get("pdf"):
             self._log(f"  {os.path.basename(res['pdf'])}")
         self._log(f"Pasta: {os.path.dirname(res['final'])}")
+        self._atualizar_saldo()
         self.open_btn.configure(command=lambda: open_folder(res["final"]))
         self.open_btn.pack(fill="x", pady=(4, 0))
         self.redo_btn.pack(fill="x", pady=(4, 0))
@@ -1084,6 +1188,7 @@ class App(TkinterDnD.Tk):
 
     def _fail(self, err: str):
         self.busy = False
+        self.cancelar_btn.pack_forget()
         self.progress.stop()
         self.progress.pack_forget()
         self.drop_label.configure(
