@@ -33,9 +33,10 @@ BULLET_CHARS = "•◦▪·–-"
 
 @dataclass
 class Paragraph:
-    kind: str          # date | title | field | h | b | p
+    kind: str          # date | title | field | h | b | p | quote
     text: str          # texto original (limpo)
     corrected: str | None = None  # preenchido após a IA ("" = excluir)
+    xml: str = ""      # XML original — usado quando kind == "quote"
 
 
 @dataclass
@@ -148,6 +149,44 @@ def _find_signature_start(paras: list[str]) -> int:
     return sig_start if achou_ancora else len(paras)
 
 
+_ITALIC_RE = re.compile(r"<w:i\s*/>|<w:i\s+")
+_RUN_RE = re.compile(r"<w:r\b(?:(?!</w:r>).)*</w:r>", re.S)
+
+
+def _is_italic(p_xml: str, limiar: float = 0.6) -> bool:
+    runs = [r for r in _RUN_RE.findall(p_xml) if "<w:t" in r]
+    if not runs:
+        return False
+    return sum(1 for r in runs if _ITALIC_RE.search(r)) / len(runs) >= limiar
+
+
+def _quote_indices(itens: list[tuple[str, str]], minimo: int = 3) -> set[int]:
+    """Índices de parágrafos que formam uma CITAÇÃO de outro documento.
+
+    Critério: trecho em itálico, que não seja item de lista (as listas dos
+    relatórios também são itálicas), aparecendo em bloco de pelo menos três
+    parágrafos seguidos — o padrão de texto copiado de outro serviço.
+    Esses parágrafos são preservados exatamente como estão: não vão para a
+    IA nem são reformatados, mesmo que destoem do resto do documento.
+    """
+    cand = []
+    for i, (t, p_xml) in enumerate(itens):
+        bullet = "<w:numPr>" in p_xml or (t and t[0] in BULLET_CHARS)
+        if _is_italic(p_xml) and not bullet:
+            cand.append(i)
+    saida, atual = set(), []
+    for i in cand:
+        if atual and i == atual[-1] + 1:
+            atual.append(i)
+        else:
+            if len(atual) >= minimo:
+                saida.update(atual)
+            atual = [i]
+    if len(atual) >= minimo:
+        saida.update(atual)
+    return saida
+
+
 def extract(docx_path: str) -> DocModel:
     with zipfile.ZipFile(docx_path) as z:
         xml = z.read("word/document.xml").decode("utf-8")
@@ -191,7 +230,11 @@ def extract(docx_path: str) -> DocModel:
             merged.append((t, p))
 
     total = len(merged)
+    citacoes = _quote_indices(merged)
     for i, (t, p) in enumerate(merged):
+        if i in citacoes:
+            model.paragraphs.append(Paragraph(kind="quote", text=t, xml=p))
+            continue
         kind = _classify(t, p, i, total)
         if kind == "b" and t and t[0] in BULLET_CHARS:
             t = t.lstrip(BULLET_CHARS).strip()
@@ -442,6 +485,9 @@ def _build(model: DocModel, out_path: str, redline: bool) -> None:
     numid = _ensure_bullet_numbering(files) if has_bullets else None
     body = []
     for p in model.paragraphs:
+        if p.kind == "quote":       # citação de outro documento: intocada
+            body.append(p.xml)
+            continue
         corr = p.corrected if p.corrected is not None else p.text
         if corr == "" and not redline:
             continue
@@ -538,10 +584,20 @@ def process(docx_path: str, corrector, out_dir: str | None = None,
             model.warnings.append(f"Verificação não pôde ser feita: {e}")
 
     progress("Corrigindo texto com IA…")
-    kinds = [p.kind for p in model.paragraphs]
-    corrected = corrector(model.editable_texts, kinds, extra_instructions)
-    if len(corrected) != len(model.paragraphs):
+    revisar = [i for i, p in enumerate(model.paragraphs) if p.kind != "quote"]
+    n_cit = len(model.paragraphs) - len(revisar)
+    if n_cit:
+        model.warnings.append(
+            f"{n_cit} parágrafo(s) em itálico foram preservados como citação "
+            f"de outro documento — não corrigidos nem reformatados.")
+    textos = [model.paragraphs[i].text for i in revisar]
+    kinds = [model.paragraphs[i].kind for i in revisar]
+    parciais = corrector(textos, kinds, extra_instructions)
+    if len(parciais) != len(revisar):
         raise ValueError("A correção devolveu número inesperado de parágrafos.")
+    corrected = [p.text for p in model.paragraphs]
+    for i, c in zip(revisar, parciais):
+        corrected[i] = c
 
     for p, corr in zip(model.paragraphs, corrected):
         if not numbers_preserved(p.text, corr):

@@ -37,6 +37,12 @@ O próprio app guia esse processo no primeiro uso. Em resumo:
 - **Vários arquivos de uma vez**: solte quantos quiser — eles entram numa fila e são processados em sequência;
 - Ao final, o botão **📂 Abrir pasta** leva direto aos arquivos gerados, e **🔁 Refazer com a instrução acima** reprocessa o mesmo documento com uma nova instrução, sem procurar o arquivo de novo.
 
+### Citações de outros documentos (itálico)
+
+Trechos **copiados de outro documento** — o histórico de outro serviço, um parecer, um despacho — costumam vir colados em itálico. O app detecta esses blocos (itálico, fora de lista, em sequência de três parágrafos ou mais) e os **preserva exatamente como estão**: não vão para a IA, não são reformatados e não entram no diff.
+
+Isso é proposital: alterar a grafia de um texto citado descaracteriza a fonte. Mesmo que o trecho destoe do resto do relatório — nomes em caixa baixa, siglas sem maiúscula, acentos faltando —, ele sai idêntico ao original. Um aviso informa quantos parágrafos foram preservados assim.
+
 ### Conferência automática de datas
 
 Antes de enviar qualquer coisa à IA, o app confere as datas do documento **por código** e avisa (sem alterar nada) quando encontra:
