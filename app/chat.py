@@ -39,6 +39,31 @@ Você pode:
 Para GERAR UMA IMAGEM, responda apenas com:
 {"acao": "gerar_imagem", "prompt": "descrição detalhada em inglês"}
 
+Para CRIAR UMA APRESENTAÇÃO, responda apenas com:
+{"acao": "criar_apresentacao", "titulo": "...", "subtitulo": "...",
+ "slides": [{"titulo": "...", "topicos": ["...", "..."], "notas": "..."}]}
+Regras: 4 a 6 tópicos por slide, frases curtas, sem inventar dados.
+
+Para EDITAR A APRESENTAÇÃO anexada:
+{"acao": "editar_apresentacao", "resumo": "...", "operacoes": [
+  {"tipo": "substituir_texto", "de": "2025", "para": "2026"},
+  {"tipo": "alterar_titulo", "slide": 2, "valor": "..."},
+  {"tipo": "adicionar_slide", "titulo": "...", "topicos": ["..."]},
+  {"tipo": "remover_slide", "slide": 5},
+  {"tipo": "notas", "slide": 1, "valor": "..."}]}
+
+Para CONVERTER OU MANIPULAR ARQUIVOS anexados:
+{"acao": "arquivo", "resumo": "...", "tipo": "<operação>", "parametros": {...}}
+Operações: juntar_pdf · dividir_pdf · extrair_paginas (paginas: "1-3,7") ·
+girar_pdf (graus, paginas) · proteger_pdf (senha) · pdf_para_docx ·
+pdf_para_imagens · imagens_para_pdf · docx_para_pdf · docx_para_pptx ·
+pptx_para_pdf
+
+Sobre PDF, seja honesta: dá para juntar, dividir, girar, extrair páginas,
+proteger e transcrever sem converter; mas EDITAR O TEXTO exige converter
+para .docx primeiro (o layout não é preservado) — proponha isso quando ela
+pedir para "editar" ou "corrigir" um PDF.
+
 Para EDITAR A PLANILHA anexada, responda apenas com:
 {"acao": "editar_planilha", "resumo": "o que será feito",
  "operacoes": [
@@ -124,25 +149,52 @@ def _texto_pdf(caminho: str) -> str:
     return "\n".join((p.extract_text() or "") for p in r.pages[:30]).strip()
 
 
-def preparar_anexo(caminho: str) -> dict:
-    """Devolve {'tipo': 'texto'|'imagem', 'nome', 'conteudo'}."""
+def preparar_anexo(caminho: str) -> list[dict]:
+    """Prepara o anexo para a conversa.
+
+    Devolve uma LISTA porque um PDF digitalizado (sem texto) é convertido
+    em imagens de página, para o modelo de visão fazer o OCR.
+    """
     ext = os.path.splitext(caminho)[1].lower()
     nome = os.path.basename(caminho)
+
+    if ext == ".pdf":
+        import arquivos
+        if arquivos.pdf_tem_texto(caminho):
+            return [{"tipo": "texto", "nome": nome, "caminho": caminho,
+                     "conteudo": _texto_pdf(caminho)}]
+        paginas = arquivos.pdf_para_imagens(caminho, limite=6)
+        saida = [{"tipo": "texto", "nome": nome, "caminho": caminho,
+                  "conteudo": "(PDF digitalizado, sem texto: as páginas "
+                              "abaixo vão como imagem para leitura)"}]
+        for img in paginas:
+            with open(img, "rb") as f:
+                b64 = base64.b64encode(f.read()).decode()
+            saida.append({"tipo": "imagem", "nome": os.path.basename(img),
+                          "caminho": img,
+                          "conteudo": f"data:image/png;base64,{b64}"})
+        return saida
+
+    if ext == ".pptx":
+        import apresentacao
+        return [{"tipo": "texto", "nome": nome, "caminho": caminho,
+                 "conteudo": apresentacao.ler(caminho)}]
+
     if ext in IMAGENS:
         with open(caminho, "rb") as f:
             b64 = base64.b64encode(f.read()).decode()
         mime = "image/png" if ext == ".png" else "image/jpeg"
-        return {"tipo": "imagem", "nome": nome,
-                "conteudo": f"data:{mime};base64,{b64}"}
+        return [{"tipo": "imagem", "nome": nome, "caminho": caminho,
+                 "conteudo": f"data:{mime};base64,{b64}"}]
     if ext == ".docx":
-        return {"tipo": "texto", "nome": nome, "conteudo": _texto_docx(caminho)}
+        return [{"tipo": "texto", "nome": nome, "caminho": caminho,
+                 "conteudo": _texto_docx(caminho)}]
     if ext == ".xlsx":
-        return {"tipo": "texto", "nome": nome, "conteudo": _texto_xlsx(caminho),
-                "planilha": caminho}
-    if ext == ".pdf":
-        return {"tipo": "texto", "nome": nome, "conteudo": _texto_pdf(caminho)}
+        return [{"tipo": "texto", "nome": nome, "caminho": caminho,
+                 "conteudo": _texto_xlsx(caminho), "planilha": caminho}]
     with open(caminho, encoding="utf-8", errors="ignore") as f:
-        return {"tipo": "texto", "nome": nome, "conteudo": f.read()[:20000]}
+        return [{"tipo": "texto", "nome": nome, "caminho": caminho,
+                 "conteudo": f.read()[:20000]}]
 
 
 # ------------------------------------------------------------- conversa IA
@@ -302,3 +354,101 @@ def aplicar_operacoes(caminho: str, operacoes: list[dict],
         destino = f"{base}_EDITADO{ext}"
     wb.save(destino)
     return destino
+
+
+# --------------------------------------------------- ações de arquivo
+
+def executar_arquivo(acao: dict, anexos: list[dict],
+                     pasta_saida: str | None = None) -> tuple[str, str]:
+    """Executa a operação pedida. Devolve (mensagem, caminho_gerado)."""
+    import arquivos
+
+    tipo = (acao.get("tipo") or "").lower()
+    par = acao.get("parametros") or {}
+    caminhos = [a["caminho"] for a in anexos if a.get("caminho")]
+    if not caminhos:
+        return ("Anexe o arquivo e repita o pedido.", "")
+
+    def dos(ext):
+        return [c for c in caminhos if c.lower().endswith(ext)]
+
+    pdfs = dos(".pdf")
+    imagens = [c for c in caminhos
+               if os.path.splitext(c)[1].lower() in IMAGENS]
+    docxs, pptxs = dos(".docx"), dos(".pptx")
+
+    def destino(base, sufixo, ext):
+        pasta = pasta_saida or os.path.dirname(os.path.abspath(base))
+        nome = os.path.splitext(os.path.basename(base))[0]
+        return os.path.join(pasta, f"{nome}{sufixo}{ext}")
+
+    if tipo == "juntar_pdf":
+        if len(pdfs) < 2:
+            return ("Anexe pelo menos dois PDFs para juntar.", "")
+        saida = arquivos.pdf_juntar(pdfs, destino(pdfs[0], "_JUNTADO", ".pdf"))
+        return (f"PDFs unidos em {os.path.basename(saida)}.", saida)
+
+    if tipo == "dividir_pdf":
+        arqs = arquivos.pdf_dividir(pdfs[0], pasta_saida)
+        return (f"PDF dividido em {len(arqs)} arquivos, um por página.",
+                arqs[0] if arqs else "")
+
+    if tipo == "extrair_paginas":
+        saida = arquivos.pdf_extrair_paginas(
+            pdfs[0], str(par.get("paginas", "1")),
+            destino(pdfs[0], "_PAGINAS", ".pdf"))
+        return (f"Páginas {par.get('paginas')} extraídas em "
+                f"{os.path.basename(saida)}.", saida)
+
+    if tipo == "girar_pdf":
+        saida = arquivos.pdf_girar(
+            pdfs[0], int(par.get("graus", 90)), str(par.get("paginas", "")),
+            destino(pdfs[0], "_GIRADO", ".pdf"))
+        return (f"PDF girado em {os.path.basename(saida)}.", saida)
+
+    if tipo == "proteger_pdf":
+        senha = par.get("senha")
+        if not senha:
+            return ("Qual senha devo usar para proteger o PDF?", "")
+        saida = arquivos.pdf_proteger(
+            pdfs[0], str(senha), destino(pdfs[0], "_PROTEGIDO", ".pdf"))
+        return (f"PDF protegido em {os.path.basename(saida)}. Guarde a "
+                f"senha: sem ela o arquivo não abre.", saida)
+
+    if tipo == "pdf_para_docx":
+        saida, aviso = arquivos.pdf_para_docx(
+            pdfs[0], destino(pdfs[0], "_EDITAVEL", ".docx"))
+        return (f"Convertido para {os.path.basename(saida)}.\n\n{aviso}",
+                saida)
+
+    if tipo == "pdf_para_imagens":
+        arqs = arquivos.pdf_para_imagens(pdfs[0], pasta_saida)
+        return (f"{len(arqs)} página(s) salvas como imagem.",
+                arqs[0] if arqs else "")
+
+    if tipo == "imagens_para_pdf":
+        if not imagens:
+            return ("Anexe as imagens que devo juntar no PDF.", "")
+        saida = arquivos.imagens_para_pdf(
+            imagens, destino(imagens[0], "_DOCUMENTO", ".pdf"))
+        return (f"{len(imagens)} imagem(ns) reunidas em "
+                f"{os.path.basename(saida)}.", saida)
+
+    if tipo == "docx_para_pdf":
+        saida = arquivos.docx_para_pdf(
+            docxs[0], destino(docxs[0], "", ".pdf"))
+        return (f"PDF gerado: {os.path.basename(saida)}.", saida)
+
+    if tipo == "docx_para_pptx":
+        saida = arquivos.docx_para_pptx(
+            docxs[0], destino(docxs[0], "", ".pptx"),
+            titulo=par.get("titulo"))
+        return (f"Apresentação gerada: {os.path.basename(saida)}. "
+                f"Confira os slides antes de usar.", saida)
+
+    if tipo == "pptx_para_pdf":
+        saida = arquivos.pptx_para_pdf(
+            pptxs[0], destino(pptxs[0], "", ".pdf"))
+        return (f"PDF gerado: {os.path.basename(saida)}.", saida)
+
+    return (f"Não conheço a operação “{tipo}”.", "")

@@ -637,7 +637,7 @@ class App(TkinterDnD.Tk):
             try:
                 cli = ai_client.OpenRouterClient(self.cfg["api_key"],
                                                  model=self.cfg["model"])
-                anexos = [chat.preparar_anexo(c) for c in caminhos]
+                anexos = [a for c in caminhos for a in chat.preparar_anexo(c)]
                 hist = [m for m in chat.carregar()][:-1]
                 usar_web = bool(self.web_var.get())
                 resposta, fontes = chat.conversar(cli, hist, texto, anexos,
@@ -656,6 +656,49 @@ class App(TkinterDnD.Tk):
                                              "Desktop"))
                     destino = chat.gerar_imagem(cli, acao["prompt"], pasta)
                     resposta = f"Imagem criada: {os.path.basename(destino)}"
+                    extra = destino
+
+                elif acao and acao.get("acao") == "criar_apresentacao":
+                    import apresentacao
+                    self.after(0, lambda: self.chat_status.configure(
+                        text="Montando a apresentação…"))
+                    pasta = (self.cfg.get("out_dir")
+                             or os.path.join(os.path.expanduser("~"),
+                                             "Desktop"))
+                    nome = (acao.get("titulo") or "Apresentacao")[:60]
+                    nome = "".join(ch for ch in nome
+                                   if ch not in '\\/:*?"<>|').strip()
+                    destino = apresentacao.criar(
+                        acao, os.path.join(pasta, f"{nome}.pptx"))
+                    resposta = (f"Apresentação criada com "
+                                f"{len(acao.get('slides', []))} slides "
+                                f"(mais a capa):\n{os.path.basename(destino)}")
+                    extra = destino
+
+                elif acao and acao.get("acao") == "editar_apresentacao":
+                    import apresentacao
+                    alvo = next((a.get("caminho") for a in anexos
+                                 if str(a.get("caminho", "")).lower()
+                                 .endswith(".pptx")), None)
+                    if not alvo:
+                        resposta = ("Anexe a apresentação (.pptx) que devo "
+                                    "editar e repita o pedido.")
+                    else:
+                        destino = apresentacao.editar(
+                            alvo, acao.get("operacoes", []))
+                        resumo = acao.get("resumo") or "Apresentação editada"
+                        resposta = (f"{resumo}\n\nSalvo como: "
+                                    f"{os.path.basename(destino)}\n"
+                                    f"(o arquivo original não foi alterado)")
+                        extra = destino
+
+                elif acao and acao.get("acao") == "arquivo":
+                    self.after(0, lambda: self.chat_status.configure(
+                        text="Processando o arquivo…"))
+                    msg, destino = chat.executar_arquivo(
+                        acao, anexos, self.cfg.get("out_dir") or None)
+                    resumo = acao.get("resumo")
+                    resposta = f"{resumo}\n\n{msg}" if resumo else msg
                     extra = destino
 
                 elif acao and acao.get("acao") == "editar_planilha":

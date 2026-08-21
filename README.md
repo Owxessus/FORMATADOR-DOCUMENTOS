@@ -48,9 +48,23 @@ No topo do painel esquerdo há um alternador **Formatador / Assistente**. O assi
 - **ler anexos**: `.docx`, `.xlsx`, `.pdf`, `.txt` e **imagens** — dá para fotografar um documento e pedir "transcreva" (OCR pelo próprio modelo de visão);
 - **buscar na internet**: ligue o interruptor **🌐** ao lado do Enviar e a pergunta é respondida com informação atual, listando as **fontes consultadas** ao final. Custa cerca de **US$ 0,007 por pergunta** (busca da OpenRouter, até 5 resultados), por isso fica desligado por padrão — a preferência é lembrada;
 - **gerar imagens** (via `bytedance-seed/seedream-5-0-lite`, ~US$ 0,035 por imagem);
-- **editar planilhas Excel por linguagem natural**: anexe o `.xlsx` e peça *"crie uma coluna com o custo por pessoa e destaque o cabeçalho"*.
+- **editar planilhas Excel por linguagem natural**: anexe o `.xlsx` e peça *"crie uma coluna com o custo por pessoa e destaque o cabeçalho"*;
+- **criar e editar apresentações**: *"monte uma apresentação sobre o serviço com 5 slides"* ou, anexando um `.pptx`, *"troque 2025 por 2026 e acrescente um slide de encaminhamentos"*;
+- **converter e manipular arquivos**: juntar, dividir, girar, extrair páginas e proteger PDFs; PDF → Word editável; Word → PDF; Word → apresentação; fotos → PDF único; apresentação → PDF.
 
-Sobre as planilhas, uma decisão de segurança importante: **a IA nunca executa código**. Ela devolve uma lista de operações conhecidas (escrever célula, fórmula, preencher abaixo, formato, formato numérico, largura, congelar painéis) que o app aplica com openpyxl — e sempre numa **cópia** (`_EDITADO.xlsx`), preservando o arquivo original.
+### O que dá (e o que não dá) com PDF
+
+PDF guarda glifos posicionados, não parágrafos — por isso as operações se dividem em duas famílias:
+
+**Sem converter nada:** juntar vários num só, dividir em páginas avulsas, extrair um intervalo (`"1-3,7"`), girar, proteger com senha e extrair o texto. Tudo preserva o arquivo como está.
+
+**Para editar o conteúdo, é preciso converter:** o app gera um `.docx` a partir do texto e, depois de editado, pode voltar para PDF. A conversão recupera **o texto, não o layout** (colunas, tabelas e posição de imagens se perdem) — e o app avisa isso em vez de fingir que ficou igual.
+
+**PDF digitalizado** (foto ou escaneamento, sem texto) é detectado automaticamente: as páginas viram imagem e vão para o modelo de visão, que transcreve. Ela pode simplesmente anexar e pedir *"transcreva"*.
+
+**Como o resultado chega:** o arquivo é salvo na pasta de saída configurada (ou ao lado do original), o chat responde com o nome do arquivo e a pasta abre sozinha. Nada é sobrescrito — as saídas levam sufixo (`_EDITADO`, `_EDITAVEL`, `_JUNTADO`, `_PAGINAS`, `_PROTEGIDO`).
+
+Sobre as planilhas e apresentações, uma decisão de segurança importante: **a IA nunca executa código**. Ela devolve uma lista de operações conhecidas (escrever célula, fórmula, preencher abaixo, formato, formato numérico, largura, congelar painéis) que o app aplica com openpyxl — e sempre numa **cópia** (`_EDITADO.xlsx`), preservando o arquivo original.
 
 ## 📋 Aba Formulários
 
@@ -175,6 +189,8 @@ git tag v1.0.0 && git push --tags
 | `app/archive.py` | índice pesquisável (SQLite FTS5) com busca por radical e sem acento |
 | `app/ai_client.py` | chamadas à OpenRouter (padrão: `google/gemini-3.7-flash`) com validação de formato, termos protegidos e custo por request |
 | `app/worker.py` | orquestração em thread + PDF opcional via Word (docx2pdf) |
+| `app/apresentacao.py` | criar, ler e editar `.pptx` (python-pptx), com layout 16:9 corrigido |
+| `app/arquivos.py` | operações de PDF sem conversão, PDF↔Word, fotos↔PDF, Word→apresentação |
 | `app/forms.py` | modelos de formulário: detecta `{{campos}}`, preenche preservando o layout e distribui anotações com IA |
 | `app/comandos.py` | comandos escritos no campo de instruções (lembrar / proteger) |
 | `app/outdir.py` | resolve a pasta de saída (config + pedido em português nas instruções) |
